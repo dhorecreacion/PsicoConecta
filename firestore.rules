@@ -57,5 +57,17 @@ service cloud.firestore {
     match /configuracion/{docId} {
       allow read, write: if true;
     }
+
+    // Contratas: registros importados desde Excel (contratas.html /
+    // js/importador-contratas.js) — colección plana, sin reserva pública ni
+    // agenda, mismo criterio "if true" que el resto de fb-psico.
+    match /contratas_registros/{registroId} {
+      allow read, write: if true;
+    }
+
+    // Casos de Contratas cerrados/reabiertos a mano — espeja /casos.
+    match /contratas_casos/{dni} {
+      allow read, write: if true;
+    }
   }
 }

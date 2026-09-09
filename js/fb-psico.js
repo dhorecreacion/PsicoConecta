@@ -37,6 +37,18 @@ export const CONFIGURACION_COLLECTION = "configuracion";
 export const CASOS_COLLECTION = "casos";
 export const DIAS_SEMANA = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"];
 
+// ---------- Contratas ----------
+// Sistema separado de MIBSAC: personal de empresas contratistas, atendido
+// solo mediante carga mensual de Excel (contratas.html / js/importador-
+// contratas.js) — sin reserva pública, sin agenda, sin ficha externa de
+// firebase-config.js (la identidad de cada persona viene del propio Excel).
+// "contratas_registros" es una colección plana (no anidada bajo un doc por
+// DNI, porque no existe un doc "vigente" tipo pacientes/{dni} que sobreescribir):
+// cada documento es una fila importada (una atención). "contratas_casos"
+// espeja "casos" (cerrar/reabrir a mano), mismo criterio.
+export const CONTRATAS_COLLECTION = "contratas_registros";
+export const CONTRATAS_CASOS_COLLECTION = "contratas_casos";
+
 // Registra un evento inmutable del ciclo de vida de una cita (reservada,
 // no_asistio, reprogramada, atendida). A diferencia de pacientes/{dni} —que
 // se sobreescribe en cada reserva nueva y por eso solo refleja el último

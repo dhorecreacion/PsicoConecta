@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html class="light" lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link rel="icon" href="logo-dho.ico" />
+<title>Psicología Ocupacional | Indicadores Contratas</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="css/common.css" rel="stylesheet"/>
+<script src="js/tailwind-config.js"></script>
+<script src="js/auth-guard.js" type="module"></script>
+</head>
+<body class="bg-background text-on-background min-h-screen">
+<!-- Navegación lateral (ver js/sidebar.js) -->
+<div data-active="contratas" id="sidebar-root"></div>
+<!-- TopAppBar -->
+<header class="fixed top-0 right-0 left-0 lg:left-[240px] h-16 flex justify-between items-center pl-16 lg:pl-margin-desktop pr-margin-mobile lg:pr-margin-desktop bg-surface dark:bg-surface-container-lowest border-b border-outline-variant dark:border-outline z-40">
+<div class="flex items-center gap-4 min-w-0">
+<h2 class="font-headline-md text-headline-md font-bold text-primary truncate">Indicadores Contratas</h2>
+</div>
+</header>
+<!-- Main Content -->
+<main class="lg:ml-[240px] pt-24 pb-12 px-margin-mobile lg:px-margin-desktop">
+<!-- Dashboard Header Actions -->
+<div class="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-8">
+<div>
+<p class="font-label-md text-label-md text-on-surface-variant mb-1">Solo carga mensual de Excel — sin agenda ni reserva pública</p>
+<h3 class="font-headline-lg text-headline-lg text-primary">Desempeño Contratas</h3>
+</div>
+<div class="flex flex-wrap gap-3 items-center">
+<!-- Tab MIBSAC / Contratas: navegación real entre páginas separadas -->
+<div class="flex items-center rounded-lg border border-outline-variant overflow-hidden">
+<a href="indicadores.html" class="px-4 py-2.5 text-body-md font-semibold text-on-surface-variant hover:bg-surface-container-low transition-all">MIBSAC</a>
+<a href="indicadores-contratas.html" class="px-4 py-2.5 text-body-md font-semibold bg-secondary text-on-secondary">Contratas</a>
+</div>
+<label class="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-outline-variant bg-white text-body-md font-semibold text-primary" for="mes-selector">
+<span class="material-symbols-outlined text-[20px]">calendar_month</span>
+<select class="bg-transparent focus:outline-none cursor-pointer" id="mes-selector">
+<option value="general" selected>General (todo el año)</option>
+<option value="0">Enero</option>
+<option value="1">Febrero</option>
+<option value="2">Marzo</option>
+<option value="3">Abril</option>
+<option value="4">Mayo</option>
+<option value="5">Junio</option>
+<option value="6">Julio</option>
+<option value="7">Agosto</option>
+<option value="8">Septiembre</option>
+<option value="9">Octubre</option>
+<option value="10">Noviembre</option>
+<option value="11">Diciembre</option>
+</select>
+<span id="periodo-anio">—</span>
+</label>
+<button class="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-secondary text-on-secondary text-body-md font-semibold hover:opacity-90 transition-all shadow-sm" id="export-btn" type="button">
+<span class="material-symbols-outlined text-[20px]">download</span>
+                    Exportar Reporte
+                </button>
+</div>
+</div>
+<!-- Metric Grid -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-gutter mb-gutter">
+<!-- Metric 1: Atenciones del Período -->
+<div class="glass-card p-6 rounded-xl transition-all hover:-translate-y-1">
+<div class="flex justify-between items-start mb-4">
+<div class="p-2 rounded-lg bg-secondary/10 text-secondary">
+<span class="material-symbols-outlined">event_available</span>
+</div>
+<span class="text-xs font-bold text-primary/40 bg-surface-container-high px-2 py-1 rounded">Registros</span>
+</div>
+<p class="text-on-surface-variant font-label-md">Atenciones del Período</p>
+<h4 class="text-3xl font-bold text-primary mt-1" id="kpi-atenciones-mes">—</h4>
+</div>
+<!-- Metric 2: Atendidos del Período (personas únicas) -->
+<div class="glass-card p-6 rounded-xl transition-all hover:-translate-y-1">
+<div class="flex justify-between items-start mb-4">
+<div class="p-2 rounded-lg bg-secondary/10 text-secondary">
+<span class="material-symbols-outlined">how_to_reg</span>
+</div>
+<span class="text-xs font-bold text-primary/40 bg-surface-container-high px-2 py-1 rounded">Personas únicas</span>
+</div>
+<p class="text-on-surface-variant font-label-md">Atendidos del Período</p>
+<h4 class="text-3xl font-bold text-primary mt-1" id="kpi-atendidos-mes">—</h4>
+</div>
+<!-- Metric 3: Casos Activos -->
+<div class="glass-card p-6 rounded-xl transition-all hover:-translate-y-1">
+<div class="flex justify-between items-start mb-4">
+<div class="p-2 rounded-lg bg-secondary/10 text-secondary">
+<span class="material-symbols-outlined">folder_open</span>
+</div>
+<span class="text-xs font-bold text-primary/40 bg-surface-container-high px-2 py-1 rounded">En curso</span>
+</div>
+<p class="text-on-surface-variant font-label-md">Casos Activos</p>
+<h4 class="text-3xl font-bold text-primary mt-1" id="kpi-casos-activos">—</h4>
+</div>
+<!-- Metric 4: Casos de Riesgo -->
+<div class="glass-card p-6 rounded-xl transition-all hover:-translate-y-1 bg-red-50/50 border-red-100">
+<div class="flex justify-between items-start mb-4">
+<div class="p-2 rounded-lg bg-red-100 text-error">
+<span class="material-symbols-outlined">report_problem</span>
+</div>
+<span class="text-xs font-bold text-error bg-white px-2 py-1 rounded shadow-sm">Alta Prioridad</span>
+</div>
+<p class="text-on-surface-variant font-label-md">Casos de Riesgo</p>
+<h4 class="text-3xl font-bold text-primary mt-1" id="riskValue">—</h4>
+</div>
+</div>
+<!-- Charts Grid -->
+<div class="grid grid-cols-12 gap-gutter">
+<!-- Main Chart: Registros por Mes -->
+<div class="col-span-12 lg:col-span-8 glass-card p-6 sm:p-8 rounded-xl">
+<div class="flex flex-wrap justify-between items-center gap-2 mb-8">
+<h5 class="font-headline-md text-headline-md text-primary">Registros por Mes (<span id="chart-anio">—</span>)</h5>
+<span class="flex items-center gap-1.5 text-xs text-on-surface-variant font-medium">
+<span class="w-3 h-3 rounded-full bg-secondary"></span> Personas atendidas
+                    </span>
+</div>
+<div class="relative h-64 w-full flex items-end justify-between gap-1 px-2" id="chart-mensual">
+<p class="text-body-md text-on-surface-variant m-auto">Cargando…</p>
+</div>
+</div>
+<!-- Atenciones por Área (período elegido) -->
+<div class="col-span-12 lg:col-span-4 glass-card p-6 sm:p-8 rounded-xl flex flex-col">
+<h5 class="font-headline-md text-headline-md text-primary mb-6">Atenciones por Área (período elegido)</h5>
+<div class="space-y-6 flex-1" id="chart-areas">
+<p class="text-body-md text-on-surface-variant">Cargando…</p>
+</div>
+</div>
+<!-- Atenciones por Empresa (período elegido) -->
+<div class="col-span-12 lg:col-span-6 glass-card p-6 sm:p-8 rounded-xl flex flex-col">
+<h5 class="font-headline-md text-headline-md text-primary mb-6">Atenciones por Empresa (período elegido)</h5>
+<div class="space-y-6 flex-1" id="chart-empresas">
+<p class="text-body-md text-on-surface-variant">Cargando…</p>
+</div>
+</div>
+<!-- Diagnósticos Más Frecuentes (período elegido) -->
+<div class="col-span-12 lg:col-span-6 glass-card p-6 sm:p-8 rounded-xl">
+<div class="mb-8">
+<h5 class="font-headline-md text-headline-md text-primary">Diagnósticos Más Frecuentes (período elegido)</h5>
+</div>
+<div class="space-y-4" id="psychContent">
+<p class="text-body-md text-on-surface-variant">Cargando…</p>
+</div>
+</div>
+<!-- Modalidades de Atención (período elegido) -->
+<div class="col-span-12 lg:col-span-4 glass-card p-6 sm:p-8 rounded-xl">
+<h5 class="font-headline-md text-headline-md text-primary mb-6">Modalidades de Atención (período elegido)</h5>
+<div class="space-y-6" id="chart-modalidades">
+<p class="text-body-md text-on-surface-variant">Cargando…</p>
+</div>
+</div>
+<!-- Derivaciones (período elegido) -->
+<div class="col-span-12 lg:col-span-4 glass-card p-6 sm:p-8 rounded-xl">
+<h5 class="font-headline-md text-headline-md text-primary mb-6">Derivaciones (período elegido)</h5>
+<div class="space-y-6" id="chart-derivaciones">
+<p class="text-body-md text-on-surface-variant">Cargando…</p>
+</div>
+</div>
+<!-- Aptitud Laboral (período elegido) -->
+<div class="col-span-12 lg:col-span-4 glass-card p-6 sm:p-8 rounded-xl">
+<h5 class="font-headline-md text-headline-md text-primary mb-8">Aptitud Laboral (período elegido)</h5>
+<div class="flex flex-col sm:flex-row items-center gap-8 sm:gap-12">
+<div class="relative w-40 h-40 rounded-full flex-shrink-0 flex items-center justify-center" id="chart-aptitud-donut">
+<div class="w-[108px] h-[108px] rounded-full bg-surface-container-lowest flex items-center justify-center">
+<div class="text-center">
+<span class="text-2xl font-bold text-primary" id="aptitud-donut-value">—</span>
+<p class="text-[10px] text-on-surface-variant uppercase font-bold" id="aptitud-donut-label">—</p>
+</div>
+</div>
+</div>
+<div class="flex-1 w-full space-y-4" id="chart-aptitud-legend">
+<p class="text-body-md text-on-surface-variant">Cargando…</p>
+</div>
+</div>
+</div>
+<!-- Distribución de Prioridades -->
+<div class="col-span-12 lg:col-span-6 glass-card p-6 sm:p-8 rounded-xl">
+<h5 class="font-headline-md text-headline-md text-primary mb-8">Distribución de Prioridades</h5>
+<div class="flex flex-col sm:flex-row items-center gap-8 sm:gap-12">
+<div class="relative w-40 h-40 rounded-full flex-shrink-0 flex items-center justify-center" id="chart-prioridades-donut">
+<div class="w-[108px] h-[108px] rounded-full bg-surface-container-lowest flex items-center justify-center">
+<div class="text-center">
+<span class="text-2xl font-bold text-primary" id="donut-center-value">—</span>
+<p class="text-[10px] text-on-surface-variant uppercase font-bold" id="donut-center-label">—</p>
+</div>
+</div>
+</div>
+<div class="flex-1 w-full space-y-4" id="chart-prioridades-legend">
+<p class="text-body-md text-on-surface-variant">Cargando…</p>
+</div>
+</div>
+</div>
+<!-- Diagnóstico más frecuente por Área (período elegido) -->
+<div class="col-span-12 lg:col-span-6 glass-card p-6 sm:p-8 rounded-xl">
+<h5 class="font-headline-md text-headline-md text-primary mb-6">Diagnóstico Más Frecuente por Área (período elegido)</h5>
+<div class="space-y-3" id="chart-diag-area">
+<p class="text-body-md text-on-surface-variant">Cargando…</p>
+</div>
+</div>
+<!-- Casos Sin Seguimiento -->
+<div class="col-span-12 glass-card p-6 sm:p-8 rounded-xl">
+<div class="flex flex-wrap items-center justify-between gap-2 mb-6">
+<h5 class="font-headline-md text-headline-md text-primary">Casos Sin Seguimiento</h5>
+<span class="text-xs text-on-surface-variant font-medium">Riesgo/restricción, sin atención reciente</span>
+</div>
+<div class="space-y-3" id="chart-seguimiento">
+<p class="text-body-md text-on-surface-variant">Cargando…</p>
+</div>
+</div>
+</div>
+</main>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="js/sidebar.js" type="module"></script>
+<script src="js/indicadores-contratas.js" type="module"></script>
+</body>
+</html>

@@ -31,7 +31,12 @@
 <p class="font-label-md text-label-md text-on-surface-variant mb-1" id="viewSubtitle">Resumen Operativo Mensual</p>
 <h3 class="font-headline-lg text-headline-lg text-primary" id="viewTitle">Desempeño Operativo</h3>
 </div>
-<div class="flex flex-wrap gap-3">
+<div class="flex flex-wrap gap-3 items-center">
+<!-- Tab MIBSAC / Contratas: navegación real entre páginas separadas -->
+<div class="flex items-center rounded-lg border border-outline-variant overflow-hidden">
+<a href="indicadores.html" class="px-4 py-2.5 text-body-md font-semibold bg-secondary text-on-secondary">MIBSAC</a>
+<a href="indicadores-contratas.html" class="px-4 py-2.5 text-body-md font-semibold text-on-surface-variant hover:bg-surface-container-low transition-all">Contratas</a>
+</div>
 <label class="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-outline-variant bg-white text-body-md font-semibold text-primary" for="mes-selector">
 <span class="material-symbols-outlined text-[20px]">calendar_month</span>
 <select class="bg-transparent focus:outline-none cursor-pointer" id="mes-selector">

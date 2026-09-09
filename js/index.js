@@ -46,6 +46,7 @@ const TIME_SELECTED_CLASS =
 
 const monthLabel = document.getElementById("calendar-month-label");
 const daysGrid = document.getElementById("calendar-days-grid");
+const mesAgotadoMsg = document.getElementById("calendar-mes-agotado");
 const timeOptionsContainer = document.getElementById("time-options");
 
 const wspInput = document.getElementById("wsp-input");
@@ -93,7 +94,7 @@ function limpiarCamposFamiliar() {
 let disponibilidadMap = {};
 let intervaloMinutos = 30; // duración de cita; la configura el administrador
 let horasOcupadas = new Set();
-let calendarioMesActual = new Date();
+const calendarioMesActual = new Date(); // fijo al mes en curso: sin navegación a otros meses
 let selectedFecha = null;
 let selectedFechaLabel = null;
 let selectedFechaLarga = null;
@@ -196,6 +197,8 @@ function renderCalendarioMes() {
     daysGrid.appendChild(document.createElement("div"));
   }
 
+  let quedanDiasDisponibles = false;
+
   for (let dia = 1; dia <= diasEnMes; dia++) {
     const fecha = new Date(anio, mes, dia);
     const btn = document.createElement("button");
@@ -207,6 +210,7 @@ function renderCalendarioMes() {
       btn.className =
         "aspect-square flex items-center justify-center rounded-lg text-body-md text-outline opacity-40 cursor-not-allowed";
     } else {
+      quedanDiasDisponibles = true;
       const iso = formatearFechaISO(fecha);
       const seleccionado = iso === selectedFecha;
       btn.className = seleccionado
@@ -216,6 +220,17 @@ function renderCalendarioMes() {
     }
 
     daysGrid.appendChild(btn);
+  }
+
+  // Sin navegación a otros meses (a propósito, ver commit): si ya no queda
+  // ningún día disponible en el mes en curso, se avisa en vez de dejar el
+  // calendario lleno de días deshabilitados sin explicación.
+  if (quedanDiasDisponibles) {
+    mesAgotadoMsg.classList.add("hidden");
+  } else {
+    const mesSiguiente = MESES_LARGOS[(mes + 1) % 12];
+    mesAgotadoMsg.textContent = `No hay más citas disponibles este mes. Vuelve a intentarlo el 1 de ${mesSiguiente}.`;
+    mesAgotadoMsg.classList.remove("hidden");
   }
 }
 
@@ -355,16 +370,6 @@ function renderResumenFamiliar(datosFamiliar) {
   familiarValue.textContent = [datosFamiliar.familiarNombre, datosFamiliar.familiarParentesco].filter(Boolean).join(" — ");
   familiarRow.classList.remove("hidden");
 }
-
-document.getElementById("calendar-prev-month").addEventListener("click", () => {
-  calendarioMesActual = new Date(calendarioMesActual.getFullYear(), calendarioMesActual.getMonth() - 1, 1);
-  renderCalendarioMes();
-});
-
-document.getElementById("calendar-next-month").addEventListener("click", () => {
-  calendarioMesActual = new Date(calendarioMesActual.getFullYear(), calendarioMesActual.getMonth() + 1, 1);
-  renderCalendarioMes();
-});
 
 async function inicializarCalendario() {
   try {
