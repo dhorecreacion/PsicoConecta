@@ -4,7 +4,17 @@
 // datos clínicos completos viven en el proyecto de firebase-config.js, que
 // solo se lee desde las vistas del psicólogo (ya autenticado).
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {
+  getFirestore,
+  collection,
+  addDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const FB_PSICO_APP_NAME = "fb-psico";
 
@@ -36,6 +46,65 @@ export const CONFIGURACION_COLLECTION = "configuracion";
 // atencion.js e indicadores.js (para "Casos Activos").
 export const CASOS_COLLECTION = "casos";
 export const DIAS_SEMANA = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"];
+
+// ---------- Disponibilidad: mes en curso + 2 siguientes ----------
+// Cuántos meses hacia adelante (incluido el actual) se configuran fecha por
+// fecha en disponibilidad.html — ver DISPONIBILIDAD_FECHAS_COLLECTION más
+// abajo. Cualquier mes fuera de este rango (histórico, o más adelante) usa
+// fetchDisponibilidadPlantillaVieja() como aproximación en indicadores.js.
+export const DISPONIBILIDAD_MESES_CONFIGURABLES = 3; // mes en curso + 2 siguientes
+
+export function claveMes(anio, mes) {
+  // mes: 0-11, igual que Date.getMonth().
+  return `${anio}-${String(mes + 1).padStart(2, "0")}`;
+}
+
+// La plantilla semanal vieja (de la primera versión del sistema, antes de la
+// disponibilidad por fecha exacta) — respaldo/aproximación para indicadores.js
+// en cualquier mes fuera de los 3 configurables.
+export async function fetchDisponibilidadPlantillaVieja() {
+  const snapshots = await Promise.all(DIAS_SEMANA.map((dia) => getDoc(doc(dbPsico, DISPONIBILIDAD_COLLECTION, dia))));
+  const resultado = {};
+  DIAS_SEMANA.forEach((dia, i) => {
+    resultado[dia] = snapshots[i].exists() ? snapshots[i].data().bloques || [] : [];
+  });
+  return resultado;
+}
+
+// ---------- Disponibilidad por fecha exacta (reemplaza la plantilla semanal) ----------
+// Cada fecha configurable (mes en curso + 2 siguientes) es un doc propio,
+// independiente de sus vecinas: "2026-09-16" puede tener bloques distintos
+// de "2026-09-23" aunque ambos sean lunes, y una fecha sin doc (o con
+// bloques: []) simplemente no es reservable — así se cubre tanto vacaciones
+// (no configurar esa semana) como horarios que cambian de una semana a otra,
+// sin una plantilla que se repita. El ID del doc es la fecha ISO
+// ("AAAA-MM-DD"), y también se guarda en el campo "fecha" para poder hacer
+// consultas por rango (fetchDisponibilidadRango).
+export const DISPONIBILIDAD_FECHAS_COLLECTION = "disponibilidad_fechas";
+
+// Trae solo las fechas que SÍ tienen doc dentro de [fechaInicioISO, fechaFinISO]
+// (ambos incluidos). Devuelve un Map<fechaISO, bloques[]>; una fecha ausente
+// del Map no tiene bloques configurados (no reservable).
+export async function fetchDisponibilidadRango(fechaInicioISO, fechaFinISO) {
+  const q = query(
+    collection(dbPsico, DISPONIBILIDAD_FECHAS_COLLECTION),
+    where("fecha", ">=", fechaInicioISO),
+    where("fecha", "<=", fechaFinISO)
+  );
+  const snapshot = await getDocs(q);
+  const resultado = new Map();
+  snapshot.forEach((docSnap) => {
+    resultado.set(docSnap.id, docSnap.data().bloques || []);
+  });
+  return resultado;
+}
+
+// Trae los bloques de UNA fecha puntual (agenda.js: modales de Reprogramar /
+// Nueva Cita, donde solo hace falta consultar el día ya elegido).
+export async function fetchDisponibilidadFecha(fechaISO) {
+  const snap = await getDoc(doc(dbPsico, DISPONIBILIDAD_FECHAS_COLLECTION, fechaISO));
+  return snap.exists() ? snap.data().bloques || [] : [];
+}
 
 // ---------- Contratas ----------
 // Sistema separado de MIBSAC: personal de empresas contratistas, atendido

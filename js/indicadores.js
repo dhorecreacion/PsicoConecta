@@ -19,7 +19,19 @@
 // piden una sola vez y cada cambio de mes solo recalcula en el cliente.
 // La vista de RRHH (V10) se retiró de aquí (era un toggle en la misma
 // pantalla); si se retoma, debe vivir en su propia página de solo lectura.
-import { dbPsico, PACIENTES_COLLECTION, MODALIDADES, DISPONIBILIDAD_COLLECTION, DIAS_SEMANA, CONFIGURACION_COLLECTION, CASOS_COLLECTION } from "./fb-psico.js";
+import {
+  dbPsico,
+  PACIENTES_COLLECTION,
+  MODALIDADES,
+  DISPONIBILIDAD_COLLECTION,
+  DISPONIBILIDAD_MESES_CONFIGURABLES,
+  DIAS_SEMANA,
+  CONFIGURACION_COLLECTION,
+  CASOS_COLLECTION,
+  claveMes,
+  fetchDisponibilidadRango,
+  fetchDisponibilidadPlantillaVieja
+} from "./fb-psico.js";
 import { auth } from "./firebase-config.js";
 import { fetchFichasPorDnis } from "./fichas-cache.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
@@ -161,23 +173,36 @@ async function fetchCitas() {
   return citas;
 }
 
-// Plantilla semanal de disponibilidad (7 días + intervalo de cita), para
-// estimar capacidad. OJO: es la plantilla ACTUAL; si los horarios cambiaron
-// en el pasado, la capacidad de meses anteriores es una aproximación, no un
-// registro histórico real (eso no se guarda hoy).
+// Disponibilidad por fecha exacta (disponibilidad.html permite configurar el
+// mes en curso y los 2 siguientes, fecha por fecha — ver fetchDisponibilidadRango
+// en fb-psico.js). Para esos 3 meses, la capacidad suma los bloques reales de
+// cada fecha (una fecha sin doc no aporta capacidad ese día); para cualquier
+// otro mes (histórico, o más adelante de los 3 configurables) se usa la
+// plantilla vieja (sin prefijo de fecha) como aproximación por día de semana.
 async function fetchDisponibilidadCompleta() {
-  const [snapshots, configSnap] = await Promise.all([
-    Promise.all(DIAS_SEMANA.map((dia) => getDoc(doc(dbPsico, DISPONIBILIDAD_COLLECTION, dia)))),
-    getDoc(doc(dbPsico, DISPONIBILIDAD_COLLECTION, "config"))
+  const ahora = new Date();
+  const mesesConfigurables = Array.from(
+    { length: DISPONIBILIDAD_MESES_CONFIGURABLES },
+    (_, offset) => new Date(ahora.getFullYear(), ahora.getMonth() + offset, 1)
+  );
+  const primero = mesesConfigurables[0];
+  const ultimo = mesesConfigurables[mesesConfigurables.length - 1];
+  const finUltimo = new Date(ultimo.getFullYear(), ultimo.getMonth() + 1, 0);
+  const fechaInicioISO = `${primero.getFullYear()}-${String(primero.getMonth() + 1).padStart(2, "0")}-01`;
+  const fechaFinISO = `${finUltimo.getFullYear()}-${String(finUltimo.getMonth() + 1).padStart(2, "0")}-${String(finUltimo.getDate()).padStart(2, "0")}`;
+
+  const [configSnap, plantillaVieja, porFecha] = await Promise.all([
+    getDoc(doc(dbPsico, DISPONIBILIDAD_COLLECTION, "config")),
+    fetchDisponibilidadPlantillaVieja(),
+    fetchDisponibilidadRango(fechaInicioISO, fechaFinISO)
   ]);
 
-  const bloquesPorDia = {};
-  DIAS_SEMANA.forEach((dia, i) => {
-    bloquesPorDia[dia] = snapshots[i].exists() ? snapshots[i].data().bloques || [] : [];
-  });
+  const mesesConfigurablesClaves = new Set(
+    mesesConfigurables.map((fecha) => claveMes(fecha.getFullYear(), fecha.getMonth()))
+  );
 
   const intervaloMinutos = configSnap.exists() ? Number(configSnap.data().intervaloMinutos) || 30 : 30;
-  return { bloquesPorDia, intervaloMinutos };
+  return { porFecha, mesesConfigurablesClaves, plantillaVieja, intervaloMinutos };
 }
 
 // Umbral de días sin sesión para marcar un caso como "sin seguimiento",
@@ -233,9 +258,24 @@ function contarDiasSemanaEnMes(anio, mes) {
 }
 
 function calcularCapacidadMes(disponibilidad, anio, mes) {
+  const clave = claveMes(anio, mes);
+
+  // Mes entre los 3 configurables: capacidad real, fecha por fecha (una
+  // fecha sin doc no aporta capacidad ese día — ver fetchDisponibilidadCompleta).
+  if (disponibilidad.mesesConfigurablesClaves.has(clave)) {
+    const totalDias = new Date(anio, mes + 1, 0).getDate();
+    let total = 0;
+    for (let d = 1; d <= totalDias; d++) {
+      const fechaISO = clave + "-" + String(d).padStart(2, "0");
+      total += contarSlotsBloques(disponibilidad.porFecha.get(fechaISO), disponibilidad.intervaloMinutos);
+    }
+    return total;
+  }
+
+  // Cualquier otro mes: la plantilla vieja como aproximación por día de semana.
   const conteoDias = contarDiasSemanaEnMes(anio, mes);
   return DIAS_SEMANA.reduce((total, dia) => {
-    const slotsPorDia = contarSlotsBloques(disponibilidad.bloquesPorDia[dia], disponibilidad.intervaloMinutos);
+    const slotsPorDia = contarSlotsBloques(disponibilidad.plantillaVieja[dia], disponibilidad.intervaloMinutos);
     return total + slotsPorDia * conteoDias[dia];
   }, 0);
 }

@@ -43,6 +43,15 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Disponibilidad por fecha exacta (reemplaza la plantilla semanal para
+    // el mes en curso y los 2 siguientes): un doc por fecha con sus propios
+    // bloques — una fecha sin doc, o sin bloques, no es reservable. Así se
+    // cubre tanto "esta semana sí, la siguiente no" (vacaciones) como
+    // "este lunes distinto del otro lunes", sin una plantilla que se repita.
+    match /disponibilidad_fechas/{fechaId} {
+      allow read, write: if true;
+    }
+
     // Casos cerrados/reabiertos a mano (pacientes.html / atencion.html), para
     // "Casos Activos" en indicadores.html. Mismo criterio "if true" que el
     // resto: este proyecto (fb-psico) no tiene Auth propio.

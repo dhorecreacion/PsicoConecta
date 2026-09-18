@@ -64,6 +64,14 @@ body {
 .time-slot:hover { background-color: rgba(33, 112, 228, 0.05); cursor: crosshair; }
 
 /* Sidebar: colapsable en móvil, siempre visible desde el breakpoint lg */
+:root {
+  /* Ancho real del sidebar en pantallas lg+; el resto del layout (headers,
+     <main>) lo lee con lg:ml-[var(--sidebar-w)] / lg:left-[var(--sidebar-w)]
+     en vez de un 240px fijo, así que un solo cambio de esta variable mueve
+     todo el layout a la vez. Por debajo de lg el sidebar es un drawer que
+     siempre usa su ancho completo (240px), sin importar este valor. */
+  --sidebar-w: 240px;
+}
 #app-sidebar {
   transform: translateX(-100%);
   transition: transform 0.2s ease-in-out;
@@ -74,5 +82,25 @@ body {
 @media (min-width: 1024px) {
   #app-sidebar {
     transform: translateX(0) !important;
+    transition: width 0.2s ease-in-out;
+  }
+
+  /* Sidebar contraído: solo aplica desde lg (en móvil el drawer siempre se
+     abre completo, sin importar si quedó contraído la última vez en
+     escritorio). */
+  .sidebar-collapsed {
+    --sidebar-w: 76px;
+  }
+  .sidebar-collapsed .sidebar-label {
+    display: none;
+  }
+  .sidebar-collapsed #app-sidebar nav a,
+  .sidebar-collapsed #app-sidebar .sidebar-footer a {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .sidebar-collapsed #app-sidebar .sidebar-header {
+    justify-content: center;
   }
 }

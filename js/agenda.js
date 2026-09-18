@@ -4,7 +4,15 @@
 // guardar la sesión final) / no_asistio / reprogramada (se marcan aquí).
 // Los nombres y áreas salen de las fichas de personal (firebase-config,
 // autenticado), pedidos por lotes como en pacientes.js.
-import { dbPsico, PACIENTES_COLLECTION, DISPONIBILIDAD_COLLECTION, MODALIDADES, MOTIVOS_INASISTENCIA, registrarHistorialCita } from "./fb-psico.js";
+import {
+  dbPsico,
+  PACIENTES_COLLECTION,
+  DISPONIBILIDAD_COLLECTION,
+  MODALIDADES,
+  MOTIVOS_INASISTENCIA,
+  registrarHistorialCita,
+  fetchDisponibilidadFecha
+} from "./fb-psico.js";
 import { auth } from "./firebase-config.js";
 import { fetchFichasPorDnis } from "./fichas-cache.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
@@ -13,14 +21,16 @@ import {
   collectionGroup,
   getDocs,
   doc,
+  getDoc,
   updateDoc,
+  setDoc,
+  serverTimestamp,
   query,
   where,
   orderBy,
   limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-const DIA_KEY_POR_GETDAY = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
 const DIAS_CORTOS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const MESES_CORTOS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
@@ -56,7 +66,6 @@ const filterTodasBtn = document.getElementById("filter-todas");
 
 let reservas = []; // [{ dni, data }]
 let fichasMap = new Map();
-let disponibilidadMap = {};
 let intervaloMinutos = 30; // duración de cita; la configura el administrador
 let filtroActual = "hoy";
 
@@ -101,18 +110,26 @@ async function fetchReservas() {
   return lista;
 }
 
-async function fetchDisponibilidadMap() {
-  const mapa = {};
-  const snap = await getDocs(collection(dbPsico, DISPONIBILIDAD_COLLECTION));
-  snap.forEach((d) => {
-    if (d.id === "config") {
-      const minutos = Number(d.data().intervaloMinutos);
-      if (minutos >= 10 && minutos <= 120) intervaloMinutos = minutos;
-      return;
-    }
-    mapa[d.id] = d.data().bloques || [];
-  });
-  return mapa;
+async function fetchIntervaloMinutos() {
+  const snap = await getDoc(doc(dbPsico, DISPONIBILIDAD_COLLECTION, "config"));
+  if (snap.exists()) {
+    const minutos = Number(snap.data().intervaloMinutos);
+    if (minutos >= 10 && minutos <= 120) intervaloMinutos = minutos;
+  }
+}
+
+// Disponibilidad por fecha exacta (ver fetchDisponibilidadFecha en
+// fb-psico.js): Reprogramar y Nueva Cita permiten elegir cualquier fecha
+// futura, así que se pide bajo demanda por fecha y se cachea para no repetir
+// la consulta si la psicóloga vuelve a la misma fecha.
+const disponibilidadPorFechaCache = new Map();
+
+async function bloquesDelDia(fecha) {
+  const fechaISO = formatearFechaISO(fecha);
+  if (!disponibilidadPorFechaCache.has(fechaISO)) {
+    disponibilidadPorFechaCache.set(fechaISO, fetchDisponibilidadFecha(fechaISO));
+  }
+  return disponibilidadPorFechaCache.get(fechaISO);
 }
 
 // ---------- Render de tarjetas (DOM APIs: el DNI viene del formulario público) ----------
@@ -474,14 +491,19 @@ reprogramarModal.addEventListener("click", (e) => {
   if (e.target === reprogramarModal) cerrarModalReprogramar();
 });
 
-function renderHorasReprogramacion() {
+async function renderHorasReprogramacion() {
   const fechaISO = reprogramarFecha.value;
   reprogramarHoras.innerHTML = "";
 
   if (!fechaISO) return;
 
   const fecha = new Date(`${fechaISO}T00:00:00`);
-  const bloques = disponibilidadMap[DIA_KEY_POR_GETDAY[fecha.getDay()]] || [];
+  reprogramarHoras.innerHTML = '<p class="col-span-full text-body-md text-on-surface-variant">Cargando horarios…</p>';
+  const bloques = await bloquesDelDia(fecha);
+  // La fecha pudo cambiar mientras se esperaba la respuesta: si ya no
+  // coincide, no se pintan horas de una fecha vieja encima de la nueva.
+  if (reprogramarFecha.value !== fechaISO) return;
+  reprogramarHoras.innerHTML = "";
   const turnos = generarHorasDelDia(bloques);
 
   if (turnos.length === 0) {
@@ -641,10 +663,182 @@ riskAlertReviewBtn.addEventListener("click", async () => {
   window.location.href = "atencion.html?dni=" + encodeURIComponent(dniAlerta);
 });
 
-// ---------- Otros controles ----------
-document.getElementById("fab-nueva-cita").addEventListener("click", () => {
-  window.location.href = "index.html";
+// ---------- Nueva cita (crearla directo desde la agenda, sin pasar por
+// index.html) ----------
+const nuevaCitaModal = document.getElementById("nueva-cita-modal");
+const nuevaCitaClose = document.getElementById("nueva-cita-close");
+const nuevaCitaDniInput = document.getElementById("nueva-cita-dni");
+const nuevaCitaTelefonoInput = document.getElementById("nueva-cita-telefono");
+const nuevaCitaFamiliarCheck = document.getElementById("nueva-cita-familiar-check");
+const nuevaCitaFamiliarFields = document.getElementById("nueva-cita-familiar-fields");
+const nuevaCitaFamiliarNombreInput = document.getElementById("nueva-cita-familiar-nombre");
+const nuevaCitaFamiliarParentescoInput = document.getElementById("nueva-cita-familiar-parentesco");
+const nuevaCitaFecha = document.getElementById("nueva-cita-fecha");
+const nuevaCitaHoras = document.getElementById("nueva-cita-horas");
+const nuevaCitaError = document.getElementById("nueva-cita-error");
+const nuevaCitaGuardar = document.getElementById("nueva-cita-guardar");
+
+let turnoNuevaCita = null; // { hora, modalidad, enlace } del bloque de disponibilidad elegido
+
+nuevaCitaFamiliarCheck.addEventListener("change", () => {
+  nuevaCitaFamiliarFields.classList.toggle("hidden", !nuevaCitaFamiliarCheck.checked);
 });
+
+function abrirModalNuevaCita() {
+  nuevaCitaDniInput.value = "";
+  nuevaCitaTelefonoInput.value = "";
+  nuevaCitaFamiliarCheck.checked = false;
+  nuevaCitaFamiliarFields.classList.add("hidden");
+  nuevaCitaFamiliarNombreInput.value = "";
+  nuevaCitaFamiliarParentescoInput.value = "";
+  nuevaCitaFecha.value = "";
+  nuevaCitaFecha.min = formatearFechaISO(new Date());
+  nuevaCitaHoras.innerHTML = '<p class="col-span-full text-body-md text-on-surface-variant">Elige primero una fecha.</p>';
+  turnoNuevaCita = null;
+  nuevaCitaError.classList.add("hidden");
+  nuevaCitaModal.classList.remove("hidden");
+}
+
+function cerrarModalNuevaCita() {
+  nuevaCitaModal.classList.add("hidden");
+  turnoNuevaCita = null;
+}
+
+nuevaCitaClose.addEventListener("click", cerrarModalNuevaCita);
+nuevaCitaModal.addEventListener("click", (e) => {
+  if (e.target === nuevaCitaModal) cerrarModalNuevaCita();
+});
+
+// Misma lógica de horas que Reprogramar: cada bloque de disponibilidad trae
+// su propia modalidad, sin excluir ningún DNI (es una reserva nueva, no hay
+// nada previo que descartar de la lista de ocupadas).
+async function renderHorasNuevaCita() {
+  const fechaISO = nuevaCitaFecha.value;
+  nuevaCitaHoras.innerHTML = "";
+
+  if (!fechaISO) return;
+
+  const fecha = new Date(`${fechaISO}T00:00:00`);
+  nuevaCitaHoras.innerHTML = '<p class="col-span-full text-body-md text-on-surface-variant">Cargando horarios…</p>';
+  const bloques = await bloquesDelDia(fecha);
+  if (nuevaCitaFecha.value !== fechaISO) return;
+  nuevaCitaHoras.innerHTML = "";
+  const turnos = generarHorasDelDia(bloques);
+
+  if (turnos.length === 0) {
+    nuevaCitaHoras.innerHTML = '<p class="col-span-full text-body-md text-on-surface-variant">El psicólogo no atiende ese día.</p>';
+    return;
+  }
+
+  turnos.forEach((turno) => {
+    const ocupada = horaOcupada(fechaISO, turno.hora, null);
+    const meta = MODALIDADES[turno.modalidad] || MODALIDADES.presencial;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.title = meta.label;
+
+    const icono = document.createElement("span");
+    icono.className = "material-symbols-outlined text-[16px]";
+    icono.textContent = meta.icon;
+    const texto = document.createElement("span");
+    texto.className = "text-label-md";
+    texto.textContent = turno.hora;
+    btn.appendChild(icono);
+    btn.appendChild(texto);
+
+    if (ocupada) {
+      btn.disabled = true;
+      btn.className = "py-2 rounded-lg border border-outline-variant bg-surface-container-low text-outline flex items-center justify-center gap-1 cursor-not-allowed opacity-70";
+    } else {
+      const seleccionado = turnoNuevaCita && turnoNuevaCita.hora === turno.hora;
+      btn.className = seleccionado
+        ? "py-2 rounded-lg border-2 border-secondary bg-secondary text-on-secondary flex items-center justify-center gap-1 font-semibold"
+        : "py-2 rounded-lg border border-outline-variant hover:border-secondary flex items-center justify-center gap-1 transition-all";
+      btn.addEventListener("click", () => {
+        turnoNuevaCita = turno;
+        renderHorasNuevaCita();
+      });
+    }
+
+    nuevaCitaHoras.appendChild(btn);
+  });
+}
+
+nuevaCitaFecha.addEventListener("change", () => {
+  turnoNuevaCita = null;
+  renderHorasNuevaCita();
+});
+
+nuevaCitaGuardar.addEventListener("click", async () => {
+  const dni = nuevaCitaDniInput.value.trim().toUpperCase();
+  const telefonoWsp = nuevaCitaTelefonoInput.value.trim();
+  const fechaISO = nuevaCitaFecha.value;
+
+  // Mismo límite que la regla de Firestore (dni.size() < 10) para no dejar
+  // que truene con un error de permisos poco claro al guardar.
+  if (!/^[A-Z0-9]{8,9}$/.test(dni)) {
+    nuevaCitaError.textContent = "Ingresa un DNI válido (8-9 letras/números).";
+    nuevaCitaError.classList.remove("hidden");
+    return;
+  }
+  if (telefonoWsp && !/^9\d{8}$/.test(telefonoWsp)) {
+    nuevaCitaError.textContent = "El celular debe tener 9 dígitos y empezar en 9.";
+    nuevaCitaError.classList.remove("hidden");
+    return;
+  }
+  if (!fechaISO || !turnoNuevaCita) {
+    nuevaCitaError.textContent = "Elige una fecha y una hora.";
+    nuevaCitaError.classList.remove("hidden");
+    return;
+  }
+
+  const esFamiliar = nuevaCitaFamiliarCheck.checked;
+  const familiarNombre = esFamiliar ? nuevaCitaFamiliarNombreInput.value.trim() : "";
+  const familiarParentesco = esFamiliar ? nuevaCitaFamiliarParentescoInput.value.trim() : "";
+
+  const fecha = new Date(`${fechaISO}T00:00:00`);
+  const datosFamiliar = { esParaFamiliar: esFamiliar, familiarNombre: familiarNombre || null, familiarParentesco: familiarParentesco || null };
+  const datos = {
+    dni,
+    fecha: fechaISO,
+    fechaLabel: fechaLabelDe(fecha),
+    hora: turnoNuevaCita.hora,
+    modalidad: turnoNuevaCita.modalidad,
+    enlace: turnoNuevaCita.modalidad === "virtual" ? turnoNuevaCita.enlace : "",
+    telefonoWsp: telefonoWsp || null,
+    ...datosFamiliar,
+    estado: "reservada",
+    creadoEn: serverTimestamp()
+  };
+
+  const originalText = nuevaCitaGuardar.textContent;
+  nuevaCitaGuardar.disabled = true;
+  nuevaCitaGuardar.textContent = "Creando...";
+
+  try {
+    await setDoc(doc(dbPsico, PACIENTES_COLLECTION, dni), datos, { merge: true });
+    registrarHistorialCita(dni, {
+      estado: "reservada",
+      fecha: fechaISO,
+      hora: turnoNuevaCita.hora,
+      modalidad: turnoNuevaCita.modalidad,
+      ...datosFamiliar
+    }).catch((err) => console.warn("No se pudo registrar el historial de la cita:", err));
+
+    cerrarModalNuevaCita();
+    await refrescarReservas();
+  } catch (err) {
+    console.error("Error al crear la cita:", err);
+    nuevaCitaError.textContent = "No se pudo crear la cita.";
+    nuevaCitaError.classList.remove("hidden");
+  } finally {
+    nuevaCitaGuardar.disabled = false;
+    nuevaCitaGuardar.textContent = originalText;
+  }
+});
+
+// ---------- Otros controles ----------
+document.getElementById("fab-nueva-cita").addEventListener("click", abrirModalNuevaCita);
 
 function renderHeaderFecha() {
   document.getElementById("header-fecha").textContent = new Date().toLocaleDateString("es-PE", {
@@ -655,20 +849,23 @@ function renderHeaderFecha() {
   });
 }
 
+// Vuelve a leer pacientes + fichas (no disponibilidad, que no cambia por
+// esto) y repinta — usado tras crear una cita nueva desde el FAB, para que
+// aparezca en la lista sin recargar la página.
+async function refrescarReservas() {
+  reservas = await fetchReservas();
+  const dnis = reservas.map((r) => r.dni);
+  fichasMap = dnis.length ? await fetchFichasPorDnis(dnis) : new Map();
+  renderStats();
+  renderLista();
+}
+
 // ---------- Inicio (tras confirmar sesión, para que fichas no rebote) ----------
 async function inicializar() {
   renderHeaderFecha();
 
   try {
-    const [listaReservas, dispoMap] = await Promise.all([fetchReservas(), fetchDisponibilidadMap()]);
-    reservas = listaReservas;
-    disponibilidadMap = dispoMap;
-
-    const dnis = reservas.map((r) => r.dni);
-    fichasMap = dnis.length ? await fetchFichasPorDnis(dnis) : new Map();
-
-    renderStats();
-    renderLista();
+    await Promise.all([fetchIntervaloMinutos(), refrescarReservas()]);
   } catch (err) {
     console.error("Error al cargar las citas:", err);
     appointmentsList.innerHTML = '<p class="text-body-md text-error p-4">No se pudieron cargar las citas.</p>';

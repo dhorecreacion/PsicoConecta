@@ -12,26 +12,28 @@
 <script src="js/tailwind-config.js"></script>
 <script src="js/auth-guard.js" type="module"></script>
 </head>
-<body class="overflow-hidden">
+<body>
 <!-- Navegación lateral (ver js/sidebar.js) -->
 <div data-active="disponibilidad" id="sidebar-root"></div>
 <!-- TopAppBar -->
-<header class="fixed top-0 left-0 lg:left-[240px] right-0 h-16 bg-surface dark:bg-surface-container-lowest border-b border-outline-variant dark:border-outline flex justify-between items-center pl-16 lg:pl-margin-desktop pr-margin-mobile lg:pr-margin-desktop z-40">
+<header class="fixed top-0 left-0 lg:left-[var(--sidebar-w)] right-0 h-16 bg-surface dark:bg-surface-container-lowest border-b border-outline-variant dark:border-outline flex justify-between items-center pl-16 lg:pl-margin-desktop pr-margin-mobile lg:pr-margin-desktop z-40">
 <div class="flex items-center gap-4 min-w-0">
 <span class="font-headline-md text-headline-md font-bold text-primary truncate">Mi Disponibilidad</span>
 <span class="hidden sm:inline text-outline">/</span>
-<span class="hidden sm:inline text-on-surface-variant font-body-md">Vista semanal</span>
+<span class="hidden sm:inline text-on-surface-variant font-body-md">Por fecha exacta</span>
 </div>
-
+<!-- Pestañas: mes en curso + los 2 siguientes (único rango configurable). -->
+<div class="flex items-center rounded-lg border border-outline-variant overflow-hidden flex-shrink-0" id="mes-tabs"></div>
 </header>
 <!-- Main Content Canvas -->
-<main class="lg:ml-[240px] pt-16 h-screen overflow-hidden flex flex-col lg:flex-row">
+<main class="lg:ml-[var(--sidebar-w)] pt-16 min-h-screen flex flex-col lg:flex-row">
 <!-- Left Column: Settings and Legend -->
-<section class="w-full lg:w-80 max-h-[40vh] lg:max-h-none border-b lg:border-b-0 lg:border-r border-outline-variant bg-surface-container-lowest p-gutter flex flex-col gap-8 overflow-y-auto custom-scrollbar flex-shrink-0">
+<section class="w-full lg:w-80 border-b lg:border-b-0 lg:border-r border-outline-variant bg-surface-container-lowest p-gutter flex flex-col gap-8 flex-shrink-0">
 <div>
 <h2 class="font-headline-md text-headline-md text-primary mb-2">Mi Disponibilidad</h2>
 <p class="text-body-md text-on-surface-variant leading-relaxed">
-                    Define tus franjas horarias. Estos bloques generarán automáticamente las burbujas de reserva para tus pacientes.
+                    Cada fecha se configura por separado: haz clic en un día del calendario para agregar sus bloques.
+                    Un día sin bloques queda cerrado — no se repite nada de una semana a otra.
                 </p>
 </div>
 <!-- Legend -->
@@ -66,120 +68,57 @@
 <option value="60">60 minutos</option>
 </select>
 <p class="text-[10px] text-on-surface-variant leading-relaxed">
-                    Define cada cuánto se generan las burbujas de reserva. Ej.: un bloque de 9:00 a 12:00 con citas de 30 min produce 6 burbujas; con 60 min, solo 3. Se aplica de inmediato a la página pública.
+                    Define cada cuánto se generan las burbujas de reserva. Ej.: un bloque de 9:00 a 12:00 con citas de 30 min produce 6 burbujas; con 60 min, solo 3. Se aplica de inmediato a la página pública (es la misma duración para todas las fechas).
                 </p>
 </div>
-<!-- Cómo funciona la plantilla semanal -->
+<!-- Cómo funciona -->
 <div class="bg-secondary/5 p-4 rounded-xl border border-dashed border-secondary/30 space-y-2">
 <h3 class="text-label-md font-bold text-secondary uppercase tracking-wider flex items-center gap-2">
-<span class="material-symbols-outlined text-[18px]">event_repeat</span>
-                    Se repite cada semana
+<span class="material-symbols-outlined text-[18px]">event</span>
+                    Sin plantilla semanal
                 </h3>
 <p class="text-xs text-on-surface-variant leading-relaxed">
-                    Estos horarios son tu plantilla semanal: se aplican automáticamente todas las semanas, no hace falta volver a configurarlos.
-                </p>
-<p class="text-xs text-on-surface-variant leading-relaxed">
-<strong>¿Te surgió una reunión o emergencia?</strong> Apaga el bloque con el botón <span class="material-symbols-outlined text-[14px] align-middle">power_settings_new</span> y desaparecerá de la página pública al instante. Recuerda volver a encenderlo: el apagado aplica a todas las semanas, no solo a un día puntual.
+                    Cada fecha tiene sus propios bloques — un lunes puede ser distinto de otro lunes. ¿Vas a estar de vacaciones o no vas a atender una semana entera? Simplemente no le pongas bloques a esas fechas.
                 </p>
 </div>
-<div class="mt-auto space-y-3 pt-6 border-t border-outline-variant">
-<button class="w-full py-3 px-4 rounded-lg bg-primary text-on-primary font-bold text-body-md hover:opacity-90 transition-all flex items-center justify-center gap-2 shadow-sm" id="guardar-cambios-btn" type="button">
-                    Guardar Cambios
-                </button>
-<button class="w-full py-3 px-4 rounded-lg border border-primary text-primary font-bold text-body-md hover:bg-surface-container-low transition-all flex items-center justify-center gap-2" id="vista-previa-btn" type="button">
-<span class="material-symbols-outlined">visibility</span>
-                    Vista Previa Pública
-                </button>
-</div>
+<button class="w-full py-2 px-3 rounded-lg border border-outline-variant text-on-surface-variant text-label-md font-semibold hover:bg-surface transition-all flex items-center justify-center gap-2" id="vista-previa-btn" type="button">
+<span class="material-symbols-outlined text-[16px]">open_in_new</span>
+                Ver como el trabajador
+            </button>
 </section>
-<!-- Right Column: Interactive Calendar -->
-<section class="flex-1 min-h-0 bg-background flex flex-col overflow-hidden">
-<!-- Envoltorio con scroll horizontal: header y cuerpo comparten el mismo -->
-<!-- scroll para que las columnas de los días se mantengan alineadas. -->
-<div class="flex-1 min-h-0 overflow-x-auto flex flex-col">
-<!-- Calendar Header (Days) -->
-<div class="calendar-grid border-b border-outline-variant bg-surface-container-lowest sticky top-0 z-10">
-<div class="h-16 flex items-center justify-center border-r border-outline-variant">
-<span class="text-label-md text-outline font-bold">GMT-5</span>
+<!-- Right Column: Month Calendar -->
+<section class="flex-1 min-h-0 bg-background flex flex-col p-gutter">
+<div class="grid grid-cols-7 gap-1 mb-2 text-center">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase">Lun</span>
+<span class="font-label-md text-label-md text-on-surface-variant uppercase">Mar</span>
+<span class="font-label-md text-label-md text-on-surface-variant uppercase">Mié</span>
+<span class="font-label-md text-label-md text-on-surface-variant uppercase">Jue</span>
+<span class="font-label-md text-label-md text-on-surface-variant uppercase">Vie</span>
+<span class="font-label-md text-label-md text-error uppercase">Sáb</span>
+<span class="font-label-md text-label-md text-error uppercase">Dom</span>
 </div>
-<div class="h-16 flex flex-col items-center justify-center border-r border-outline-variant">
-<span class="text-label-md text-on-surface-variant font-bold">LUN</span>
-<span class="text-headline-md text-primary" id="header-dia-lunes">—</span>
-</div>
-<div class="h-16 flex flex-col items-center justify-center border-r border-outline-variant">
-<span class="text-label-md text-on-surface-variant font-bold">MAR</span>
-<span class="text-headline-md text-primary" id="header-dia-martes">—</span>
-</div>
-<div class="h-16 flex flex-col items-center justify-center border-r border-outline-variant">
-<span class="text-label-md text-on-surface-variant font-bold">MIÉ</span>
-<span class="text-headline-md text-primary" id="header-dia-miercoles">—</span>
-</div>
-<div class="h-16 flex flex-col items-center justify-center border-r border-outline-variant">
-<span class="text-label-md text-on-surface-variant font-bold">JUE</span>
-<span class="text-headline-md text-primary" id="header-dia-jueves">—</span>
-</div>
-<div class="h-16 flex flex-col items-center justify-center border-r border-outline-variant">
-<span class="text-label-md text-on-surface-variant font-bold">VIE</span>
-<span class="text-headline-md text-primary" id="header-dia-viernes">—</span>
-</div>
-<div class="h-16 flex flex-col items-center justify-center border-r border-outline-variant">
-<span class="text-label-md text-error font-bold">SÁB</span>
-<span class="text-headline-md text-primary" id="header-dia-sabado">—</span>
-</div>
-<div class="h-16 flex flex-col items-center justify-center">
-<span class="text-label-md text-error font-bold">DOM</span>
-<span class="text-headline-md text-primary" id="header-dia-domingo">—</span>
-</div>
-</div>
-<!-- Calendar Scrollable Body -->
-<div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white/50 relative" id="calendar-body">
-<div class="calendar-grid min-h-[1200px]">
-<!-- Time Labels -->
-<div class="border-r border-outline-variant">
-<!-- Loop hours 8 to 20 -->
-<div class="h-20 flex items-start justify-center pt-2"><span class="text-label-md text-outline">08:00</span></div>
-<div class="h-20 flex items-start justify-center pt-2"><span class="text-label-md text-outline">09:00</span></div>
-<div class="h-20 flex items-start justify-center pt-2"><span class="text-label-md text-outline">10:00</span></div>
-<div class="h-20 flex items-start justify-center pt-2"><span class="text-label-md text-outline">11:00</span></div>
-<div class="h-20 flex items-start justify-center pt-2"><span class="text-label-md text-outline">12:00</span></div>
-<div class="h-20 flex items-start justify-center pt-2"><span class="text-label-md text-outline">13:00</span></div>
-<div class="h-20 flex items-start justify-center pt-2"><span class="text-label-md text-outline">14:00</span></div>
-<div class="h-20 flex items-start justify-center pt-2"><span class="text-label-md text-outline">15:00</span></div>
-<div class="h-20 flex items-start justify-center pt-2"><span class="text-label-md text-outline">16:00</span></div>
-<div class="h-20 flex items-start justify-center pt-2"><span class="text-label-md text-outline">17:00</span></div>
-<div class="h-20 flex items-start justify-center pt-2"><span class="text-label-md text-outline">18:00</span></div>
-<div class="h-20 flex items-start justify-center pt-2"><span class="text-label-md text-outline">19:00</span></div>
-<div class="h-20 flex items-start justify-center pt-2"><span class="text-label-md text-outline">20:00</span></div>
-</div>
-<!-- Day Columns: el contenido de cada una lo arma js/disponibilidad.js a partir de Firestore -->
-<div class="border-r border-outline-variant/30 relative" data-dia="lunes">
-<p class="text-center text-label-md text-outline mt-4">Cargando…</p>
-</div>
-<div class="border-r border-outline-variant/30 relative" data-dia="martes">
-<p class="text-center text-label-md text-outline mt-4">Cargando…</p>
-</div>
-<div class="border-r border-outline-variant/30 relative" data-dia="miercoles">
-<p class="text-center text-label-md text-outline mt-4">Cargando…</p>
-</div>
-<div class="border-r border-outline-variant/30 relative" data-dia="jueves">
-<p class="text-center text-label-md text-outline mt-4">Cargando…</p>
-</div>
-<div class="border-r border-outline-variant/30 relative" data-dia="viernes">
-<p class="text-center text-label-md text-outline mt-4">Cargando…</p>
-</div>
-<div class="border-r border-outline-variant/30 relative bg-surface-container-low/30" data-dia="sabado">
-<p class="text-center text-label-md text-outline mt-4">Cargando…</p>
-</div>
-<div class="relative bg-surface-container-low/30" data-dia="domingo">
-<p class="text-center text-label-md text-outline mt-4">Cargando…</p>
-</div>
-</div>
-</div>
+<div class="grid grid-cols-7 gap-1.5" id="calendar-days-grid">
+<p class="col-span-full text-center text-body-md text-on-surface-variant py-6">Cargando calendario…</p>
 </div>
 </section>
 </main>
+<!-- ===================== MODAL: Bloques de una fecha ===================== -->
+<div class="hidden fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" id="fecha-modal">
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 w-full max-w-sm shadow-xl max-h-[90vh] overflow-y-auto">
+<div class="flex items-center justify-between mb-4">
+<h2 class="font-headline-md text-headline-md text-primary capitalize" id="fecha-modal-title">—</h2>
+<button class="p-1 rounded-full hover:bg-surface-container-low text-on-surface-variant" id="fecha-modal-close" type="button">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<div class="space-y-2 mb-4" id="fecha-modal-bloques">
+<p class="text-body-md text-on-surface-variant">Sin bloques — este día queda cerrado.</p>
+</div>
+<button class="w-full py-2.5 rounded-lg border-2 border-dashed border-outline-variant text-secondary font-bold text-label-md uppercase tracking-widest hover:bg-secondary/5 hover:border-secondary/40 transition-colors" id="fecha-modal-agregar" type="button">+ Agregar bloque</button>
+</div>
+</div>
 <!-- ===================== MODAL: Agregar / Editar bloque ===================== -->
-<div class="hidden fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" id="bloque-modal">
+<div class="hidden fixed inset-0 bg-black/50 z-[110] flex items-center justify-center p-4" id="bloque-modal">
 <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 w-full max-w-sm shadow-xl">
 <div class="flex items-center justify-between mb-4">
 <h2 class="font-headline-md text-headline-md text-primary" id="bloque-modal-title">Agregar bloque</h2>

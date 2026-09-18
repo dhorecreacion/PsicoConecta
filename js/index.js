@@ -3,9 +3,10 @@
 // autenticar contra el proyecto de fb-psico.js. El resto de la ficha
 // (nombre, teléfono, área, modalidad) se completa más adelante, cuando esa
 // parte del flujo se conecte.
-import { dbPsico, PACIENTES_COLLECTION, DISPONIBILIDAD_COLLECTION, MODALIDADES, registrarHistorialCita } from "./fb-psico.js";
+import { dbPsico, PACIENTES_COLLECTION, DISPONIBILIDAD_COLLECTION, MODALIDADES, registrarHistorialCita, fetchDisponibilidadRango } from "./fb-psico.js";
 import {
   doc,
+  getDoc,
   setDoc,
   serverTimestamp,
   collection,
@@ -29,8 +30,6 @@ const backToBookingBtn = document.getElementById("back-to-booking-btn");
 const originalBtnHtml = confirmBtn.innerHTML;
 
 // ---------- Paso 1 y 2: calendario del mes + horas, según Mi Disponibilidad ----------
-// data-dia de disponibilidad va lunes..domingo; Date.getDay() va 0=domingo..6=sábado.
-const DIA_KEY_POR_GETDAY = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
 const DIAS_CORTOS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const DIAS_LARGOS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 const MESES_CORTOS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -47,6 +46,8 @@ const TIME_SELECTED_CLASS =
 const monthLabel = document.getElementById("calendar-month-label");
 const daysGrid = document.getElementById("calendar-days-grid");
 const mesAgotadoMsg = document.getElementById("calendar-mes-agotado");
+const prevMonthBtn = document.getElementById("calendar-prev-month");
+const nextMonthBtn = document.getElementById("calendar-next-month");
 const timeOptionsContainer = document.getElementById("time-options");
 
 const wspInput = document.getElementById("wsp-input");
@@ -91,10 +92,23 @@ function limpiarCamposFamiliar() {
   familiarParentescoOtroInput.value = "";
 }
 
-let disponibilidadMap = {};
+// Disponibilidad por fecha exacta (ver fetchDisponibilidadRango en
+// fb-psico.js): Map<"AAAA-MM-DD", bloques[]>. El calendario solo muestra el
+// mes en curso y el siguiente (ver offsetMes más abajo), así que solo se
+// pide ese rango — una fecha sin doc en disponibilidad.html queda cerrada.
+let disponibilidadPorFecha = new Map();
 let intervaloMinutos = 30; // duración de cita; la configura el administrador
 let horasOcupadas = new Set();
-const calendarioMesActual = new Date(); // fijo al mes en curso: sin navegación a otros meses
+// Navegación acotada a lo sumo un mes hacia adelante (offsetMes 0 = mes en
+// curso, 1 = el siguiente) — nunca hacia atrás del mes en curso, y nunca más
+// de un mes adelante: la psicóloga puede no haber configurado disponibilidad
+// más allá de eso.
+const HOY = new Date();
+let offsetMes = 0;
+
+function mesMostrado() {
+  return new Date(HOY.getFullYear(), HOY.getMonth() + offsetMes, 1);
+}
 let selectedFecha = null;
 let selectedFechaLabel = null;
 let selectedFechaLarga = null;
@@ -113,18 +127,25 @@ function formatearFechaISO(fecha) {
   return `${y}-${m}-${d}`;
 }
 
-async function fetchDisponibilidadMap() {
-  const mapa = {};
-  const snap = await getDocs(collection(dbPsico, DISPONIBILIDAD_COLLECTION));
-  snap.forEach((d) => {
-    if (d.id === "config") {
-      const minutos = Number(d.data().intervaloMinutos);
-      if (minutos >= 10 && minutos <= 120) intervaloMinutos = minutos;
-      return;
-    }
-    mapa[d.id] = d.data().bloques || [];
-  });
-  return mapa;
+async function fetchIntervaloMinutos() {
+  const snap = await getDoc(doc(dbPsico, DISPONIBILIDAD_COLLECTION, "config"));
+  if (snap.exists()) {
+    const minutos = Number(snap.data().intervaloMinutos);
+    if (minutos >= 10 && minutos <= 120) intervaloMinutos = minutos;
+  }
+}
+
+// Trae la disponibilidad del mes en curso y del siguiente (los únicos que
+// puede mostrar el calendario): solo llegan las fechas que ya tienen doc.
+async function fetchDisponibilidadPorFecha() {
+  const inicio = new Date(HOY.getFullYear(), HOY.getMonth(), 1);
+  const fin = new Date(HOY.getFullYear(), HOY.getMonth() + 2, 0); // fin del mes siguiente
+  return fetchDisponibilidadRango(formatearFechaISO(inicio), formatearFechaISO(fin));
+}
+
+// Bloques configurados para esa fecha exacta (no hay plantilla que repetir).
+function bloquesDelDia(fecha) {
+  return disponibilidadPorFecha.get(formatearFechaISO(fecha)) || [];
 }
 
 async function fetchHorasOcupadas() {
@@ -168,9 +189,7 @@ function generarHorasDelDia(bloques) {
 }
 
 function diaTieneAtencion(fecha) {
-  const key = DIA_KEY_POR_GETDAY[fecha.getDay()];
-  const bloques = disponibilidadMap[key] || [];
-  return bloques.some((b) => b.activo && b.modalidad !== "emergencia");
+  return bloquesDelDia(fecha).some((b) => b.activo && b.modalidad !== "emergencia");
 }
 
 function esFechaValida(fecha) {
@@ -182,10 +201,13 @@ function esFechaValida(fecha) {
 }
 
 function renderCalendarioMes() {
-  const anio = calendarioMesActual.getFullYear();
-  const mes = calendarioMesActual.getMonth();
+  const mesActual = mesMostrado();
+  const anio = mesActual.getFullYear();
+  const mes = mesActual.getMonth();
 
   monthLabel.textContent = `${MESES_LARGOS[mes]} ${anio}`;
+  prevMonthBtn.classList.toggle("hidden", offsetMes <= 0);
+  nextMonthBtn.classList.toggle("hidden", offsetMes >= 1);
 
   const primerDiaMes = new Date(anio, mes, 1);
   const offsetInicio = (primerDiaMes.getDay() + 6) % 7; // semana empieza en lunes
@@ -222,14 +244,17 @@ function renderCalendarioMes() {
     daysGrid.appendChild(btn);
   }
 
-  // Sin navegación a otros meses (a propósito, ver commit): si ya no queda
-  // ningún día disponible en el mes en curso, se avisa en vez de dejar el
-  // calendario lleno de días deshabilitados sin explicación.
+  // Navegación acotada a un mes adelante (offsetMes 0/1): si ya no queda
+  // ningún día disponible en el mes que se está mostrando, se avisa en vez
+  // de dejar el calendario lleno de días deshabilitados sin explicación.
   if (quedanDiasDisponibles) {
     mesAgotadoMsg.classList.add("hidden");
-  } else {
+  } else if (offsetMes === 0) {
     const mesSiguiente = MESES_LARGOS[(mes + 1) % 12];
-    mesAgotadoMsg.textContent = `No hay más citas disponibles este mes. Vuelve a intentarlo el 1 de ${mesSiguiente}.`;
+    mesAgotadoMsg.textContent = `No hay más citas disponibles este mes. Usa la flecha para ver ${mesSiguiente}.`;
+    mesAgotadoMsg.classList.remove("hidden");
+  } else {
+    mesAgotadoMsg.textContent = "No hay citas disponibles este mes.";
     mesAgotadoMsg.classList.remove("hidden");
   }
 }
@@ -255,8 +280,7 @@ function seleccionarFecha(fecha) {
 
 function renderHorasDelDiaSeleccionado() {
   const fecha = new Date(`${selectedFecha}T00:00:00`);
-  const key = DIA_KEY_POR_GETDAY[fecha.getDay()];
-  const turnos = generarHorasDelDia(disponibilidadMap[key] || []);
+  const turnos = generarHorasDelDia(bloquesDelDia(fecha));
 
   timeOptionsContainer.innerHTML = "";
 
@@ -371,12 +395,28 @@ function renderResumenFamiliar(datosFamiliar) {
   familiarRow.classList.remove("hidden");
 }
 
+prevMonthBtn.addEventListener("click", () => {
+  if (offsetMes <= 0) return;
+  offsetMes--;
+  renderCalendarioMes();
+});
+
+nextMonthBtn.addEventListener("click", () => {
+  if (offsetMes >= 1) return;
+  offsetMes++;
+  renderCalendarioMes();
+});
+
 async function inicializarCalendario() {
   try {
-    [disponibilidadMap, horasOcupadas] = await Promise.all([fetchDisponibilidadMap(), fetchHorasOcupadas()]);
+    [disponibilidadPorFecha, horasOcupadas] = await Promise.all([
+      fetchDisponibilidadPorFecha(),
+      fetchHorasOcupadas(),
+      fetchIntervaloMinutos()
+    ]);
   } catch (err) {
     console.error("Error al cargar la disponibilidad:", err);
-    disponibilidadMap = {};
+    disponibilidadPorFecha = new Map();
     horasOcupadas = new Set();
   }
   renderCalendarioMes();
