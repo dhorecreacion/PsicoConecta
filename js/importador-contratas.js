@@ -14,6 +14,7 @@
 // reimportar el mismo archivo sobreescribe en vez de duplicar.
 import { dbPsico, CONTRATAS_COLLECTION, CONFIGURACION_COLLECTION } from "./fb-psico.js";
 import { cargarCie10 } from "./cie10.js";
+import { cargarAreas } from "./org-estructura.js";
 import {
   doc,
   getDoc,
@@ -24,14 +25,24 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const COLUMNAS = [
-  "dni", "nombre", "empresa", "area", "cargo", "fecha", "hora", "modalidad",
+  "dni", "nombre", "sexo", "empresa", "area", "cargo", "fecha", "hora", "modalidad",
   "motivo", "riesgo", "frecuencia", "prioridad", "derivacion", "aptitud",
   "observaciones", "recomendaciones", "evolucion", "diagnosticos", "acciones", "resultados"
 ];
 
 const PRIORIDADES = { baja: "low", media: "medium", alta: "high", low: "low", medium: "medium", high: "high" };
+// Inverso de PRIORIDADES, para el consolidado: el archivo exportado debe
+// quedar en el mismo vocabulario que espera la plantilla (por si se vuelve
+// a subir tal cual).
+const PRIORIDAD_A_TEXTO = { low: "baja", medium: "media", high: "alta" };
 const APTITUDES = { apto: "apto", restricciones: "restricciones", "apto con restricciones": "restricciones", "no apto": "no_apto", no_apto: "no_apto" };
 const MODALIDADES_ALIAS = { presencial: "presencial", virtual: "virtual", video: "virtual", llamada: "llamada", telefono: "llamada", "teléfono": "llamada" };
+const SEXO_ALIAS = { m: "Masculino", masculino: "Masculino", f: "Femenino", femenino: "Femenino" };
+// "riesgo" y "frecuencia" también son campos de exactitud (un valor mal
+// escrito debe rechazar la fila, no quedar en blanco o con texto libre sin
+// avisar) — antes solo se tomaban como texto suelto.
+const RIESGO_ALIAS = { si: true, "sí": true, "1": true, "true": true, no: false, "0": false, "false": false };
+const FRECUENCIA_ALIAS = { semanal: "Semanal", quincenal: "Quincenal", mensual: "Mensual", "a demanda": "A demanda", ademanda: "A demanda" };
 
 // Mismos catálogos editables de Configuración que usa MIBSAC (Derivación y
 // Acciones son del mismo psicólogo, atienda a quien atienda).
@@ -56,6 +67,10 @@ function construirMapaCatalogo(lista) {
 
 let derivacionesValidas = construirMapaCatalogo(DERIVACIONES_DEFAULT);
 let accionesValidas = construirMapaCatalogo(ACCIONES_DEFAULT);
+// Lista cerrada de áreas (data/org-estructura.json, campo "Area"): a
+// diferencia de derivaciones/acciones (catálogo editable en Configuración),
+// esta es fija y compartida con el editor de atenciones de contratas.html.
+let areasValidas = {};
 
 async function obtenerCatalogos() {
   try {
@@ -82,6 +97,7 @@ const importStatus = document.getElementById("import-status");
 const importErrors = document.getElementById("import-errors");
 const importWarnings = document.getElementById("import-warnings");
 const importBtn = document.getElementById("import-btn");
+const downloadReportBtn = document.getElementById("download-report-btn");
 
 let registrosValidos = [];
 
@@ -106,9 +122,9 @@ function hojaConAnchos(filas, columnas) {
 
 // Filas de ejemplo: datos ficticios de dos empresas contratistas distintas.
 const FILAS_EJEMPLO = [
-  ["10000001", "Marco Quispe Huamán", "Contrata Andina SAC", "Mantenimiento", "Técnico", "2026-05-13", "18:00", "virtual", "Refiere estrés por carga laboral.", "no", "Semanal", "media", "", "apto", "", "Se brindan recomendaciones para el manejo del estrés.", "", "", "", ""],
-  ["10000002", "Rosa Delia Flores", "Servicios Generales del Sur EIRL", "Limpieza", "Operaria", "2026-06-03", "10:00", "llamada", "Refiere afectación emocional por situación familiar.", "no", "a demanda", "media", "Psicologia", "no apto", "", "Se recomienda seguimiento en próxima visita a campo.", "", "F43.2", "", "En proceso de cierre."],
-  ["10000003", "Jhon Torres Vega", "Contrata Andina SAC", "Mantenimiento", "Supervisor", "2026-06-10", "08:00", "presencial", "Sesión de seguimiento; se registran avances.", "no", "Mensual", "baja", "", "apto", "Asiste puntualmente y muestra buena disposición.", "", "", "", "", ""]
+  ["10000001", "Marco Quispe Huamán", "Masculino", "Contrata Andina SAC", "Mantenimiento", "Técnico", "2026-05-13", "18:00", "virtual", "Refiere estrés por carga laboral.", "no", "Semanal", "media", "", "apto", "", "Se brindan recomendaciones para el manejo del estrés.", "", "", "", ""],
+  ["10000002", "Rosa Delia Flores", "Femenino", "Servicios Generales del Sur EIRL", "Planta", "Operaria", "2026-06-03", "10:00", "llamada", "Refiere afectación emocional por situación familiar.", "no", "a demanda", "media", "Psicologia", "no apto", "", "Se recomienda seguimiento en próxima visita a campo.", "", "F43.2", "", "En proceso de cierre."],
+  ["10000003", "Jhon Torres Vega", "Masculino", "Contrata Andina SAC", "Mantenimiento", "Supervisor", "2026-06-10", "08:00", "presencial", "Sesión de seguimiento; se registran avances.", "no", "Mensual", "baja", "", "apto", "Asiste puntualmente y muestra buena disposición.", "", "", "", "", ""]
 ];
 
 // ---------- Plantilla Excel ----------
@@ -117,23 +133,25 @@ downloadTemplateBtn.addEventListener("click", async () => {
 
   const filasDatos = [COLUMNAS, ...FILAS_EJEMPLO];
   const catalogos = await obtenerCatalogos();
+  const areas = await cargarAreas();
 
   const filasGuia = [
     ["Columna", "¿Obligatorio?", "Qué poner"],
     ["dni", "SÍ", "8 a 12 letras/números (DNI o carné de extranjería)."],
     ["nombre", "SÍ", "Nombre completo del trabajador de la contrata (aquí no hay ficha externa de la que completarlo)."],
+    ["sexo", "No", "M / F (o Masculino / Femenino)."],
     ["empresa", "SÍ", "Nombre de la empresa contratista."],
-    ["area", "No", "Área o proceso dentro de la contrata."],
+    ["area", "No", "Debe ser una de estas opciones exactas (catálogo de la organización): " + areas.join(", ") + "."],
     ["cargo", "No", "Cargo del trabajador."],
     ["fecha", "SÍ", "Fecha real: 2026-05-14 o 14/05/2026."],
     ["hora", "No", "Formato 10:30 (si se deja vacío, se asume 12:00)."],
-    ["modalidad", "No", "presencial, virtual (o video), llamada."],
+    ["modalidad", "No", "Debe ser una de estas opciones exactas: presencial / virtual (o video) / llamada."],
     ["motivo", "No", "Texto libre: motivo de consulta."],
-    ["riesgo", "No", "si / no. Los riesgos históricos NO encienden ninguna alerta automática."],
-    ["frecuencia", "No", "Semanal, Quincenal, Mensual, A demanda."],
-    ["prioridad", "No", "baja / media / alta (vacío = media)."],
+    ["riesgo", "No", "Debe ser exactamente si / no (vacío = no). Los riesgos históricos NO encienden ninguna alerta automática."],
+    ["frecuencia", "No", "Debe ser una de estas opciones exactas: Semanal / Quincenal / Mensual / A demanda."],
+    ["prioridad", "No", "Debe ser una de estas opciones exactas: baja / media / alta (vacío = media)."],
     ["derivacion", "No", catalogos.derivaciones.join(", ") + " (vacío = No requerida). Debe ser una de estas opciones exactas: son las mismas del catálogo editable en Configuración."],
-    ["aptitud", "No", "apto / restricciones / no_apto."],
+    ["aptitud", "No", "Debe ser una de estas opciones exactas: apto / restricciones / no_apto."],
     ["observaciones", "No", "Texto libre: observaciones registradas durante la atención."],
     ["recomendaciones", "No", "Texto libre: recomendaciones brindadas."],
     ["evolucion", "No", "Texto libre: evolución y respuesta a la intervención."],
@@ -234,11 +252,35 @@ function validarFila(celdas, indices, numeroFila) {
     return { error: `Fila ${numeroFila}: falta la empresa.` };
   }
 
+  const sexoTexto = valor("sexo").toLowerCase();
+  if (sexoTexto && !SEXO_ALIAS[sexoTexto]) {
+    return { error: `Fila ${numeroFila}: sexo "${valor("sexo")}" no válido (M / F).` };
+  }
+
+  const areaTexto = normalizarTexto(valor("area"));
+  if (areaTexto && !areasValidas[areaTexto]) {
+    return {
+      error: `Fila ${numeroFila}: área "${valor("area")}" no válida (debe ser una de las del catálogo de la organización).`
+    };
+  }
+
   const horaMatch = valor("hora").match(/(\d{1,2}):(\d{2})/);
   const hora = horaMatch ? `${horaMatch[1].padStart(2, "0")}:${horaMatch[2]}` : "";
 
   const fechaParseada = parseFecha(valor("fecha"), hora);
   if (!fechaParseada) return { error: `Fila ${numeroFila}: fecha inválida ("${valor("fecha")}"). Usa AAAA-MM-DD o DD/MM/AAAA.` };
+
+  const riesgoTexto = valor("riesgo").toLowerCase();
+  if (riesgoTexto && !(riesgoTexto in RIESGO_ALIAS)) {
+    return { error: `Fila ${numeroFila}: riesgo "${valor("riesgo")}" no válido (si / no).` };
+  }
+
+  const frecuenciaTexto = normalizarTexto(valor("frecuencia"));
+  if (frecuenciaTexto && !FRECUENCIA_ALIAS[frecuenciaTexto]) {
+    return {
+      error: `Fila ${numeroFila}: frecuencia "${valor("frecuencia")}" no válida (Semanal / Quincenal / Mensual / A demanda).`
+    };
+  }
 
   const prioridadTexto = valor("prioridad").toLowerCase();
   if (prioridadTexto && !PRIORIDADES[prioridadTexto]) {
@@ -284,7 +326,7 @@ function validarFila(celdas, indices, numeroFila) {
     acciones.push(canonica);
   }
 
-  const riesgo = ["si", "sí", "1", "true"].includes(valor("riesgo").toLowerCase());
+  const riesgo = riesgoTexto ? RIESGO_ALIAS[riesgoTexto] : false;
 
   return {
     registro: {
@@ -293,13 +335,14 @@ function validarFila(celdas, indices, numeroFila) {
       horaISO: claveHora(hora),
       data: {
         nombre,
+        sexo: SEXO_ALIAS[sexoTexto] || null,
         empresa,
-        area: valor("area"),
+        area: areaTexto ? areasValidas[areaTexto] : "",
         cargo: valor("cargo"),
         riesgo,
         prioridad: PRIORIDADES[prioridadTexto] || "medium",
         modalidad: MODALIDADES_ALIAS[modalidadTexto] || null,
-        frecuencia: valor("frecuencia"),
+        frecuencia: frecuenciaTexto ? FRECUENCIA_ALIAS[frecuenciaTexto] : "",
         motivoConsulta: valor("motivo"),
         observaciones: valor("observaciones"),
         recomendaciones: valor("recomendaciones"),
@@ -362,6 +405,7 @@ importFile.addEventListener("change", () => {
     const catalogosVigentes = await obtenerCatalogos();
     derivacionesValidas = construirMapaCatalogo(catalogosVigentes.derivaciones);
     accionesValidas = construirMapaCatalogo(catalogosVigentes.acciones);
+    areasValidas = construirMapaCatalogo(await cargarAreas());
 
     const errores = [];
     const advertencias = [];
@@ -473,5 +517,72 @@ importBtn.addEventListener("click", async () => {
     mostrarEstado("Error al importar: " + (err.message || "revisa la consola."), true);
   } finally {
     importBtn.disabled = false;
+  }
+});
+
+// ---------- Consolidado: TODO lo cargado, en el mismo formato de columnas
+// que la plantilla (COLUMNAS) — así el archivo exportado se puede volver a
+// subir tal cual si hiciera falta corregir algo. Ordenado de más reciente a
+// más antiguo, igual criterio que el reporte maestro de pacientes.html.
+downloadReportBtn.addEventListener("click", async () => {
+  if (!sheetJsDisponible()) return;
+
+  const originalHtml = downloadReportBtn.innerHTML;
+  downloadReportBtn.disabled = true;
+  downloadReportBtn.textContent = "Generando…";
+
+  try {
+    const snap = await getDocs(collection(dbPsico, CONTRATAS_COLLECTION));
+    if (snap.empty) {
+      alert("Todavía no hay registros de Contratas para exportar.");
+      return;
+    }
+
+    const filas = snap.docs.map((d) => {
+      const data = d.data();
+      const fechaObj = data.registradoEn && data.registradoEn.toDate ? data.registradoEn.toDate() : null;
+
+      return {
+        orden: fechaObj ? fechaObj.getTime() : 0,
+        fila: [
+          data.dni || "",
+          data.nombre || "",
+          data.sexo || "",
+          data.empresa || "",
+          data.area || "",
+          data.cargo || "",
+          data.fecha || "",
+          data.hora || "",
+          data.modalidad || "",
+          data.motivoConsulta || "",
+          data.riesgo ? "si" : "no",
+          data.frecuencia || "",
+          PRIORIDAD_A_TEXTO[data.prioridad] || "media",
+          data.derivacion || "",
+          data.aptitud || "",
+          data.observaciones || "",
+          data.recomendaciones || "",
+          data.evolucion || "",
+          (data.diagnosticos || []).map((diag) => diag.codigo).join("; "),
+          (data.accionesRealizadas || []).join("; "),
+          data.resultadosPruebas || ""
+        ]
+      };
+    });
+
+    filas.sort((a, b) => b.orden - a.orden);
+
+    const filasHoja = [COLUMNAS, ...filas.map((f) => f.fila)];
+    const libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hojaConAnchos(filasHoja, COLUMNAS), "Contratas");
+
+    const hoy = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(libro, `consolidado-contratas-${hoy}.xlsx`);
+  } catch (err) {
+    console.error("Error al generar el consolidado de Contratas:", err);
+    alert("No se pudo generar el consolidado. Revisa la consola.");
+  } finally {
+    downloadReportBtn.disabled = false;
+    downloadReportBtn.innerHTML = originalHtml;
   }
 });

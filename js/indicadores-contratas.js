@@ -10,7 +10,15 @@
 // Género (depende de la ficha externa, que Contratas tampoco tiene). A
 // cambio, "Atenciones por Empresa" es nueva (no existe en MIBSAC), porque
 // "empresa" es la dimensión propia de Contratas — el equivalente a "área".
-import { dbPsico, MODALIDADES, CONFIGURACION_COLLECTION, CONTRATAS_COLLECTION, CONTRATAS_CASOS_COLLECTION } from "./fb-psico.js";
+import {
+  dbPsico,
+  MODALIDADES,
+  CONFIGURACION_COLLECTION,
+  CONTRATAS_COLLECTION,
+  CONTRATAS_CASOS_COLLECTION,
+  requiereSeguimientoContratas,
+  esCasoActivoContratas
+} from "./fb-psico.js";
 import { auth } from "./firebase-config.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { collection, getDocs, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -123,39 +131,57 @@ async function fetchUmbralSeguimiento() {
   }
 }
 
-async function fetchCasosCerrados() {
-  const cerrados = new Set();
+async function fetchCasosInfo() {
+  const info = new Map();
   try {
     const snap = await getDocs(collection(dbPsico, CONTRATAS_CASOS_COLLECTION));
-    snap.forEach((d) => {
-      if (d.data().cerrado) cerrados.add(d.id);
-    });
+    snap.forEach((d) => info.set(d.id, d.data()));
   } catch (err) {
-    console.warn("No se pudo cargar el estado de casos cerrados:", err);
+    console.warn("No se pudo cargar el estado de casos:", err);
   }
-  return cerrados;
-}
-
-// Sin ficha externa: un caso deja de ser "activo" únicamente si el
-// psicólogo lo cerró a mano.
-function esCasoActivo(dni, casosCerrados) {
-  return !(casosCerrados && casosCerrados.has(dni));
+  return info;
 }
 
 // ---------- Cálculo ----------
-function calcularIndicadores(registros, mesSeleccionado, umbralSeguimientoDias, casosCerrados) {
+// "anioSeleccionado" filtra el período que se muestra en el gráfico mensual
+// y en las estadísticas por período (hay data cargada desde 2024); "ahora"
+// sigue siendo la fecha real, para que Casos Activos/Riesgo/Sin Seguimiento
+// (estado actual del caso) no dependan del año que se esté mirando.
+function calcularIndicadores(registros, mesSeleccionado, anioSeleccionado, umbralSeguimientoDias, casosInfo) {
   const ahora = new Date();
-  const anio = ahora.getFullYear();
+  const anio = anioSeleccionado;
   const esGeneral = mesSeleccionado === "general";
   const mes = esGeneral ? null : mesSeleccionado;
 
+  // Primera pasada: solo para saber la atención más reciente de cada DNI —
+  // "activo" depende de ella, así que debe conocerse antes de calcular
+  // cualquier estadística filtrada por período.
   const dnisTotales = new Set();
+  const ultimaPorDni = new Map();
+  registros.forEach(({ dni, data }) => {
+    dnisTotales.add(dni);
+    const fecha = timestampToDate(data.registradoEn);
+    const previa = ultimaPorDni.get(dni);
+    const fechaPrevia = previa ? timestampToDate(previa.registradoEn) : null;
+    if (!previa || (fecha && (!fechaPrevia || fecha > fechaPrevia))) {
+      ultimaPorDni.set(dni, data);
+    }
+  });
+
+  // "Activo" se calcula una sola vez por DNI y se reutiliza en todo lo
+  // demás (ver esCasoActivoContratas en fb-psico.js — cierre automático por
+  // inactividad para casos sin riesgo/restricciones, calculado al vuelo).
+  const activoPorDni = new Map();
+  dnisTotales.forEach((dni) => {
+    activoPorDni.set(dni, esCasoActivoContratas(ultimaPorDni.get(dni), casosInfo.get(dni), umbralSeguimientoDias, ahora));
+  });
+
   const dnisMes = new Set();
   let atencionesMes = 0;
   const registrosPorMes = Array.from({ length: 12 }, () => new Set());
-  const ultimaPorDni = new Map();
   const conteoAreas = new Map();
   const conteoEmpresas = new Map();
+  const conteoSexo = new Map();
   const conteoDiagnosticos = new Map();
   const conteoDerivaciones = new Map();
   const conteoModalidades = new Map();
@@ -163,7 +189,6 @@ function calcularIndicadores(registros, mesSeleccionado, umbralSeguimientoDias, 
   const aptitudMes = { apto: 0, restricciones: 0, no_apto: 0 };
 
   registros.forEach(({ dni, data }) => {
-    dnisTotales.add(dni);
     const fecha = timestampToDate(data.registradoEn);
     const area = data.area || "Sin área registrada";
     const empresa = data.empresa || "Sin empresa registrada";
@@ -174,12 +199,15 @@ function calcularIndicadores(registros, mesSeleccionado, umbralSeguimientoDias, 
         atencionesMes++;
         dnisMes.add(dni);
 
-        if (data.aptitud && Object.prototype.hasOwnProperty.call(aptitudMes, data.aptitud) && esCasoActivo(dni, casosCerrados)) {
+        if (data.aptitud && Object.prototype.hasOwnProperty.call(aptitudMes, data.aptitud) && activoPorDni.get(dni)) {
           aptitudMes[data.aptitud]++;
         }
 
         conteoAreas.set(area, (conteoAreas.get(area) || 0) + 1);
         conteoEmpresas.set(empresa, (conteoEmpresas.get(empresa) || 0) + 1);
+
+        const sexo = data.sexo || "Sin registro";
+        conteoSexo.set(sexo, (conteoSexo.get(sexo) || 0) + 1);
 
         (data.diagnosticos || []).forEach((diag) => {
           if (!diag || !diag.label) return;
@@ -197,19 +225,13 @@ function calcularIndicadores(registros, mesSeleccionado, umbralSeguimientoDias, 
         conteoModalidades.set(modalidadKey, (conteoModalidades.get(modalidadKey) || 0) + 1);
       }
     }
-
-    const previa = ultimaPorDni.get(dni);
-    const fechaPrevia = previa ? timestampToDate(previa.registradoEn) : null;
-    if (!previa || (fecha && (!fechaPrevia || fecha > fechaPrevia))) {
-      ultimaPorDni.set(dni, data);
-    }
   });
 
   let casosRiesgo = 0;
   const conteoPrioridades = new Map();
   const casosSinSeguimiento = [];
   ultimaPorDni.forEach((ultima, dni) => {
-    const activo = esCasoActivo(dni, casosCerrados);
+    const activo = activoPorDni.get(dni);
 
     if (ultima.riesgo && activo) casosRiesgo++;
 
@@ -218,8 +240,7 @@ function calcularIndicadores(registros, mesSeleccionado, umbralSeguimientoDias, 
 
     if (!activo) return;
 
-    const requiereSeguimiento = ultima.riesgo || ultima.aptitud === "restricciones" || ultima.aptitud === "no_apto";
-    if (!requiereSeguimiento) return;
+    if (!requiereSeguimientoContratas(ultima)) return;
     const fechaUltima = timestampToDate(ultima.registradoEn);
     if (!fechaUltima) return;
     const diasSinAtender = Math.floor((ahora - fechaUltima) / (1000 * 60 * 60 * 24));
@@ -239,7 +260,7 @@ function calcularIndicadores(registros, mesSeleccionado, umbralSeguimientoDias, 
 
   let casosActivos = 0;
   dnisTotales.forEach((dni) => {
-    if (esCasoActivo(dni, casosCerrados)) casosActivos++;
+    if (activoPorDni.get(dni)) casosActivos++;
   });
 
   return {
@@ -254,6 +275,7 @@ function calcularIndicadores(registros, mesSeleccionado, umbralSeguimientoDias, 
     registrosPorMes: registrosPorMes.map((set) => set.size),
     conteoAreas: conteoAreas,
     conteoEmpresas: conteoEmpresas,
+    conteoSexo: conteoSexo,
     conteoPrioridades: conteoPrioridades,
     conteoDiagnosticos: conteoDiagnosticos,
     conteoDerivaciones: conteoDerivaciones,
@@ -266,7 +288,7 @@ function calcularIndicadores(registros, mesSeleccionado, umbralSeguimientoDias, 
 // ---------- Render ----------
 function renderKpis(ind) {
   document.getElementById("mes-selector").value = ind.esGeneral ? "general" : String(ind.mes);
-  setTexto("periodo-anio", String(ind.anio));
+  document.getElementById("anio-selector").value = String(ind.anio);
   setTexto("kpi-atenciones-mes", String(ind.atencionesMes));
   setTexto("kpi-atendidos-mes", String(ind.atendidosMes));
   setTexto("kpi-casos-activos", String(ind.casosActivos));
@@ -316,6 +338,25 @@ function renderChartEmpresas(ind) {
     .forEach(([empresa, cuenta]) => {
       const pct = porcentaje(cuenta, ind.atencionesMes);
       contenedor.appendChild(crearFilaBarra(empresa, cuenta + " (" + pct + "%)", pct, "bg-secondary"));
+    });
+}
+
+function renderChartSexo(ind) {
+  const contenedor = document.getElementById("chart-sexo");
+  contenedor.innerHTML = "";
+
+  if (ind.atencionesMes === 0) {
+    mensajeVacio(contenedor, "Aún no hay registros en el período elegido.");
+    return;
+  }
+
+  const colores = { Masculino: "bg-secondary", Femenino: "bg-tertiary-fixed-dim", "Sin registro": "bg-surface-container-highest" };
+
+  Array.from(ind.conteoSexo.entries())
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([sexo, cuenta]) => {
+      const pct = porcentaje(cuenta, ind.atencionesMes);
+      contenedor.appendChild(crearFilaBarra(sexo, cuenta + " (" + pct + "%)", pct, colores[sexo] || "bg-secondary"));
     });
 }
 
@@ -562,6 +603,7 @@ function renderTodo(ind) {
   renderKpis(ind);
   renderChartMensual(ind);
   renderChartAreas(ind);
+  renderChartSexo(ind);
   renderChartEmpresas(ind);
   renderChartPrioridades(ind);
   renderAptitudMes(ind);
@@ -579,32 +621,50 @@ document.getElementById("export-btn").addEventListener("click", () => window.pri
 // ---------- Inicio ----------
 let datosGlobales = null;
 const mesSelector = document.getElementById("mes-selector");
+const anioSelector = document.getElementById("anio-selector");
+
+// Hay data cargada desde 2024: el filtro va de ese año hasta el actual, más
+// reciente primero. Se puebla una sola vez (no depende de los datos).
+function poblarSelectorAnio() {
+  const anioActual = new Date().getFullYear();
+  anioSelector.innerHTML = "";
+  for (let anio = anioActual; anio >= 2024; anio--) {
+    const option = document.createElement("option");
+    option.value = String(anio);
+    option.textContent = String(anio);
+    anioSelector.appendChild(option);
+  }
+  anioSelector.value = String(anioActual);
+}
 
 function recalcularYRenderizar() {
   if (!datosGlobales) return;
   const mesSeleccionado = mesSelector.value === "general" ? "general" : Number(mesSelector.value);
+  const anioSeleccionado = Number(anioSelector.value);
   renderTodo(
-    calcularIndicadores(datosGlobales.registros, mesSeleccionado, datosGlobales.umbralSeguimiento, datosGlobales.casosCerrados)
+    calcularIndicadores(datosGlobales.registros, mesSeleccionado, anioSeleccionado, datosGlobales.umbralSeguimiento, datosGlobales.casosInfo)
   );
 }
 
 mesSelector.addEventListener("change", recalcularYRenderizar);
+anioSelector.addEventListener("change", recalcularYRenderizar);
 
 async function inicializar() {
   try {
-    const [registros, umbralSeguimiento, casosCerrados] = await Promise.all([
+    const [registros, umbralSeguimiento, casosInfo] = await Promise.all([
       fetchRegistros(),
       fetchUmbralSeguimiento(),
-      fetchCasosCerrados()
+      fetchCasosInfo()
     ]);
 
-    datosGlobales = { registros, umbralSeguimiento, casosCerrados };
+    datosGlobales = { registros, umbralSeguimiento, casosInfo };
     mesSelector.value = "general";
+    poblarSelectorAnio();
     recalcularYRenderizar();
   } catch (err) {
     console.error("Error al cargar los indicadores de Contratas:", err);
     [
-      "chart-mensual", "chart-areas", "chart-empresas", "chart-prioridades-legend",
+      "chart-mensual", "chart-areas", "chart-sexo", "chart-empresas", "chart-prioridades-legend",
       "psychContent", "chart-diag-area", "chart-seguimiento", "chart-derivaciones"
     ].forEach((id) => mensajeVacio(document.getElementById(id), "No se pudieron cargar los datos."));
   }

@@ -52,7 +52,7 @@
 <option value="10">Noviembre</option>
 <option value="11">Diciembre</option>
 </select>
-<span id="periodo-anio">—</span>
+<select class="bg-transparent focus:outline-none cursor-pointer" id="anio-selector"></select>
 </label>
 <button class="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-secondary text-on-secondary text-body-md font-semibold hover:opacity-90 transition-all shadow-sm" id="export-btn" type="button">
 <span class="material-symbols-outlined text-[20px]">download</span>
@@ -128,15 +128,22 @@
 <p class="text-body-md text-on-surface-variant">Cargando…</p>
 </div>
 </div>
+<!-- Distribución por Sexo (período elegido) -->
+<div class="col-span-12 lg:col-span-4 glass-card p-6 sm:p-8 rounded-xl flex flex-col">
+<h5 class="font-headline-md text-headline-md text-primary mb-6">Distribución por Sexo (período elegido)</h5>
+<div class="space-y-6 flex-1" id="chart-sexo">
+<p class="text-body-md text-on-surface-variant">Cargando…</p>
+</div>
+</div>
 <!-- Atenciones por Empresa (período elegido) -->
-<div class="col-span-12 lg:col-span-6 glass-card p-6 sm:p-8 rounded-xl flex flex-col">
+<div class="col-span-12 lg:col-span-4 glass-card p-6 sm:p-8 rounded-xl flex flex-col">
 <h5 class="font-headline-md text-headline-md text-primary mb-6">Atenciones por Empresa (período elegido)</h5>
 <div class="space-y-6 flex-1" id="chart-empresas">
 <p class="text-body-md text-on-surface-variant">Cargando…</p>
 </div>
 </div>
 <!-- Diagnósticos Más Frecuentes (período elegido) -->
-<div class="col-span-12 lg:col-span-6 glass-card p-6 sm:p-8 rounded-xl">
+<div class="col-span-12 lg:col-span-4 glass-card p-6 sm:p-8 rounded-xl">
 <div class="mb-8">
 <h5 class="font-headline-md text-headline-md text-primary">Diagnósticos Más Frecuentes (período elegido)</h5>
 </div>

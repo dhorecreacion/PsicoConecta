@@ -118,6 +118,36 @@ export async function fetchDisponibilidadFecha(fechaISO) {
 export const CONTRATAS_COLLECTION = "contratas_registros";
 export const CONTRATAS_CASOS_COLLECTION = "contratas_casos";
 
+// Un caso de Contratas "requiere seguimiento" si tiene riesgo o la aptitud
+// laboral quedó con restricciones/no apta (mismo criterio que "Casos Sin
+// Seguimiento" en indicadores-contratas.js): estos nunca se cierran solos
+// por inactividad, necesitan que el psicólogo los revise y cierre a mano.
+export function requiereSeguimientoContratas(ultima) {
+  return !!(ultima && (ultima.riesgo || ultima.aptitud === "restricciones" || ultima.aptitud === "no_apto"));
+}
+
+// Activo = no cerrado a mano, Y si no requiere seguimiento, con actividad
+// (última atención o última reapertura manual) dentro del umbral de días
+// de Configuración. Pasado ese plazo, un caso normal (sin riesgo/
+// restricciones) se considera cerrado automáticamente SIN escribir nada en
+// Firestore: en cuanto llega una atención nueva (reimportando el Excel) o
+// se reabre a mano, vuelve a contar como activo por otro período completo.
+// Usado por contratas.js (directorio) e indicadores-contratas.js (KPIs),
+// para que ambos coincidan siempre en qué casos están activos.
+export function esCasoActivoContratas(ultima, infoCaso, umbralSeguimientoDias, ahora) {
+  if (infoCaso && infoCaso.cerrado === true) return false;
+  if (requiereSeguimientoContratas(ultima)) return true;
+
+  const fechaUltima = ultima && ultima.registradoEn && typeof ultima.registradoEn.toDate === "function" ? ultima.registradoEn.toDate() : null;
+  const reabiertoEn = infoCaso && infoCaso.reabiertoEn && typeof infoCaso.reabiertoEn.toDate === "function" ? infoCaso.reabiertoEn.toDate() : null;
+  const referencias = [fechaUltima, reabiertoEn].filter(Boolean);
+  if (referencias.length === 0) return true;
+
+  const masReciente = new Date(Math.max(...referencias.map((d) => d.getTime())));
+  const dias = Math.floor((ahora - masReciente) / (1000 * 60 * 60 * 24));
+  return dias <= umbralSeguimientoDias;
+}
+
 // Registra un evento inmutable del ciclo de vida de una cita (reservada,
 // no_asistio, reprogramada, atendida). A diferencia de pacientes/{dni} —que
 // se sobreescribe en cada reserva nueva y por eso solo refleja el último

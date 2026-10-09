@@ -1,0 +1,342 @@
+    [
+    {
+        "Direccion": "Administracion y finanzas",
+        "Area": "Administracion y finanzas",
+        "Seccion": "Administracion lima"
+    },
+    {
+        "Direccion": "Administracion y finanzas",
+        "Area": "Administracion y finanzas",
+        "Seccion": "Administracion y finanzas"
+    },
+    {
+        "Direccion": "Administracion y finanzas",
+        "Area": "Administracion y finanzas",
+        "Seccion": "Comercial"
+    },
+    {
+        "Direccion": "Administracion y finanzas",
+        "Area": "Administracion y finanzas",
+        "Seccion": "Control interno"
+    },
+    {
+        "Direccion": "Administracion y finanzas",
+        "Area": "Administracion y finanzas",
+        "Seccion": "Costos y presupuestos"
+    },
+    {
+        "Direccion": "Administracion y finanzas",
+        "Area": "Administracion y finanzas",
+        "Seccion": "Tecnologias de la informacion"
+    },
+    {
+        "Direccion": "Administracion y finanzas",
+        "Area": "Finanzas",
+        "Seccion": "Contabilidad"
+    },
+    {
+        "Direccion": "Administracion y finanzas",
+        "Area": "Finanzas",
+        "Seccion": "Finanzas"
+    },
+    {
+        "Direccion": "Administracion y finanzas",
+        "Area": "Finanzas",
+        "Seccion": "Impuestos"
+    },
+    {
+        "Direccion": "Administracion y finanzas",
+        "Area": "Finanzas",
+        "Seccion": "Tesoreria"
+    },
+    {
+        "Direccion": "Administracion y finanzas",
+        "Area": "Logistica",
+        "Seccion": "Almacen lima"
+    },
+    {
+        "Direccion": "Administracion y finanzas",
+        "Area": "Logistica",
+        "Seccion": "Almacen mina"
+    },
+    {
+        "Direccion": "Administracion y finanzas",
+        "Area": "Logistica",
+        "Seccion": "Compras"
+    },
+    {
+        "Direccion": "Administracion y finanzas",
+        "Area": "Logistica",
+        "Seccion": "Contratos"
+    },
+    {
+        "Direccion": "Administracion y finanzas",
+        "Area": "Logistica",
+        "Seccion": "Logistica"
+    },
+    {
+        "Direccion": "Administracion y finanzas",
+        "Area": "Logistica",
+        "Seccion": "Trafico"
+    },
+    {
+        "Direccion": "Asuntos corporativos y sostenibilidad",
+        "Area": "Asuntos corporativos y sostenibilidad",
+        "Seccion": "Asuntos corporativos y sostenibilidad"
+    },
+    {
+        "Direccion": "Asuntos corporativos y sostenibilidad",
+        "Area": "Asuntos corporativos y sostenibilidad",
+        "Seccion": "Comunicaciones"
+    },
+    {
+        "Direccion": "Asuntos corporativos y sostenibilidad",
+        "Area": "Asuntos corporativos y sostenibilidad",
+        "Seccion": "Legal"
+    },
+    {
+        "Direccion": "Asuntos corporativos y sostenibilidad",
+        "Area": "Asuntos corporativos y sostenibilidad",
+        "Seccion": "Presupuesto y administracion"
+    },
+    {
+        "Direccion": "Asuntos corporativos y sostenibilidad",
+        "Area": "Asuntos corporativos y sostenibilidad",
+        "Seccion": "Relaciones comunitarias"
+    },
+    {
+        "Direccion": "Asuntos corporativos y sostenibilidad",
+        "Area": "Asuntos corporativos y sostenibilidad",
+        "Seccion": "Sostenibilidad"
+    },
+    {
+        "Direccion": "Desarrollo humano y organizacional",
+        "Area": "Desarrollo humano y organizacional",
+        "Seccion": "Administracion de personal"
+    },
+    {
+        "Direccion": "Desarrollo humano y organizacional",
+        "Area": "Desarrollo humano y organizacional",
+        "Seccion": "Bienestar social"
+    },
+    {
+        "Direccion": "Desarrollo humano y organizacional",
+        "Area": "Desarrollo humano y organizacional",
+        "Seccion": "Calidad de vida"
+    },
+    {
+        "Direccion": "Desarrollo humano y organizacional",
+        "Area": "Desarrollo humano y organizacional",
+        "Seccion": "Capacitación y selección"
+    },
+    {
+        "Direccion": "Desarrollo humano y organizacional",
+        "Area": "Desarrollo humano y organizacional",
+        "Seccion": "Desarrollo humano y organizacional"
+    },
+    {
+        "Direccion": "Exploraciones",
+        "Area": "Exploraciones",
+        "Seccion": "Exploraciones"
+    },
+    {
+        "Direccion": "Gerencia general",
+        "Area": "Gerencia general",
+        "Seccion": "Gerencia general"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Geologia",
+        "Seccion": "Geologia"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Geologia",
+        "Seccion": "Geologia mina"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Geologia",
+        "Seccion": "Logueo"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Geologia",
+        "Seccion": "Modelamiento"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Laboratorio quimico",
+        "Seccion": "Fundicion"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Laboratorio quimico",
+        "Seccion": "Laboratorio quimico"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Laboratorio quimico",
+        "Seccion": "Preparacion de muestras"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Laboratorio quimico",
+        "Seccion": "Servicios generales"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Mantenimiento",
+        "Seccion": "Mantenimiento"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Mantenimiento",
+        "Seccion": "Mantenimiento electrico"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Mantenimiento",
+        "Seccion": "Mantenimiento electrico mina"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Mantenimiento",
+        "Seccion": "Mantenimiento electrico planta"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Mantenimiento",
+        "Seccion": "Mantenimiento mecanico"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Mantenimiento",
+        "Seccion": "Mantenimiento mecanico mina"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Mantenimiento",
+        "Seccion": "Mantenimiento mecanico planta"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Mina",
+        "Seccion": "Equipos mina"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Mina",
+        "Seccion": "Supervision - mina"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Mina",
+        "Seccion": "Taladros largos"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Mina",
+        "Seccion": "Ventilacion"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Operaciones",
+        "Seccion": "Operaciones"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Planta",
+        "Seccion": "Chancado"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Planta",
+        "Seccion": "Filtracion y despacho"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Planta",
+        "Seccion": "Flotacion"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Planta",
+        "Seccion": "Laboratorio metalurgico"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Planta",
+        "Seccion": "Molienda"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Planta",
+        "Seccion": "Planta"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Planta",
+        "Seccion": "Relaves"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Proyectos",
+        "Seccion": "Proyectos (infraestructura)"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Servicios tecnicos",
+        "Seccion": "Balanza"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Servicios tecnicos",
+        "Seccion": "Costos y productividad"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Servicios tecnicos",
+        "Seccion": "Geomecanica"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Servicios tecnicos",
+        "Seccion": "Planeamiento"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Servicios tecnicos",
+        "Seccion": "Servicios tecnicos"
+    },
+    {
+        "Direccion": "Operaciones",
+        "Area": "Servicios tecnicos",
+        "Seccion": "Topografia"
+    },
+    {
+        "Direccion": "Ssoma",
+        "Area": "Ssoma",
+        "Seccion": "Geotecnia"
+    },
+    {
+        "Direccion": "Ssoma",
+        "Area": "Ssoma",
+        "Seccion": "Medio ambiente"
+    },
+    {
+        "Direccion": "Ssoma",
+        "Area": "Ssoma",
+        "Seccion": "Seguridad integral"
+    },
+    {
+        "Direccion": "Ssoma",
+        "Area": "Ssoma",
+        "Seccion": "Seguridad minera"
+    },
+    {
+        "Direccion": "Ssoma",
+        "Area": "Ssoma",
+        "Seccion": "Ssoma"
+    }
+    ]

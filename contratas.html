@@ -95,6 +95,13 @@
 <div class="hidden max-h-40 overflow-y-auto custom-scrollbar text-label-md text-error space-y-1" id="import-errors"></div>
 <div class="hidden max-h-40 overflow-y-auto custom-scrollbar text-label-md text-orange-700 space-y-1" id="import-warnings"></div>
 <button class="hidden w-full sm:w-auto px-6 py-2.5 rounded-lg bg-primary text-on-primary font-semibold hover:opacity-90 transition-all" id="import-btn" type="button">Importar</button>
+<div class="pt-4 border-t border-outline-variant">
+<button class="flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg border border-primary text-primary font-semibold hover:bg-primary/5 transition-all" id="download-report-btn" type="button">
+<span class="material-symbols-outlined text-[20px]">summarize</span>
+                        Descargar consolidado
+                    </button>
+<p class="text-label-md text-on-surface-variant mt-2">Exporta a Excel todos los registros de Contratas cargados hasta ahora, ordenados del más reciente al más antiguo — mismas columnas que la plantilla, por si necesitas corregir algo y volver a subirlo.</p>
+</div>
 </div>
 </section>
 <!-- Lista de contratas -->
@@ -103,6 +110,149 @@
 </div>
 </section>
 </main>
+<!-- ===================== MODAL: Historial de atenciones ===================== -->
+<div class="hidden fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" id="historial-modal">
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+<div class="flex items-center justify-between mb-1">
+<h2 class="font-headline-md text-headline-md text-primary">Historial de atenciones</h2>
+<button class="p-1 rounded-full hover:bg-surface-container-low text-on-surface-variant" id="historial-close" type="button">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<p class="text-body-md text-on-surface-variant mb-4" id="historial-persona">—</p>
+<div class="space-y-3" id="historial-lista">
+<p class="text-body-md text-on-surface-variant">Cargando…</p>
+</div>
+</div>
+</div>
+<!-- ===================== MODAL: Editar atención ===================== -->
+<div class="hidden fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" id="editar-modal">
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
+<div class="flex items-center justify-between mb-4">
+<h2 class="font-headline-md text-headline-md text-primary">Editar atención</h2>
+<button class="p-1 rounded-full hover:bg-surface-container-low text-on-surface-variant" id="editar-close" type="button">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-dni">DNI</label>
+<input class="w-full px-3 py-2.5 bg-surface-container-high border border-outline-variant rounded-lg text-body-md" disabled id="editar-dni" type="text"/>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-nombre">Nombre completo *</label>
+<input class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md" id="editar-nombre" type="text"/>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-sexo">Sexo</label>
+<select class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md" id="editar-sexo">
+<option value="">Sin registro</option>
+<option value="Masculino">Masculino</option>
+<option value="Femenino">Femenino</option>
+</select>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-empresa">Empresa *</label>
+<input class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md" id="editar-empresa" type="text"/>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-area">Área</label>
+<select class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md" id="editar-area">
+<option value="">Sin área registrada</option>
+</select>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-cargo">Cargo</label>
+<input class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md" id="editar-cargo" type="text"/>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-fecha">Fecha *</label>
+<input class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md" id="editar-fecha" type="date"/>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-hora">Hora</label>
+<input class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md" id="editar-hora" type="time"/>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-modalidad">Modalidad</label>
+<select class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md" id="editar-modalidad">
+<option value="">Sin registro</option>
+</select>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-frecuencia">Frecuencia</label>
+<select class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md" id="editar-frecuencia">
+<option value="">Sin registro</option>
+<option value="Semanal">Semanal</option>
+<option value="Quincenal">Quincenal</option>
+<option value="Mensual">Mensual</option>
+<option value="A demanda">A demanda</option>
+</select>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-prioridad">Prioridad</label>
+<select class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md" id="editar-prioridad">
+<option value="low">Baja</option>
+<option value="medium">Media</option>
+<option value="high">Alta</option>
+</select>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-aptitud">Aptitud laboral</label>
+<select class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md" id="editar-aptitud">
+<option value="">Sin registro</option>
+<option value="apto">Apto</option>
+<option value="restricciones">Apto con restricciones</option>
+<option value="no_apto">No apto</option>
+</select>
+</div>
+<div class="sm:col-span-2">
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-derivacion">Derivación</label>
+<select class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md" id="editar-derivacion">
+<option value="No requerida">No requerida</option>
+</select>
+</div>
+<label class="flex items-center gap-3 cursor-pointer select-none sm:col-span-2">
+<input class="w-5 h-5 rounded border-outline-variant text-secondary focus:ring-secondary" id="editar-riesgo" type="checkbox"/>
+<span class="font-body-md text-body-md text-on-surface">Caso de riesgo</span>
+</label>
+<div class="sm:col-span-2">
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-motivo">Motivo de consulta</label>
+<textarea class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md resize-none" id="editar-motivo" rows="2"></textarea>
+</div>
+<div class="sm:col-span-2">
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-observaciones">Observaciones</label>
+<textarea class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md resize-none" id="editar-observaciones" rows="2"></textarea>
+</div>
+<div class="sm:col-span-2">
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-recomendaciones">Recomendaciones</label>
+<textarea class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md resize-none" id="editar-recomendaciones" rows="2"></textarea>
+</div>
+<div class="sm:col-span-2">
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-evolucion">Evolución</label>
+<textarea class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md resize-none" id="editar-evolucion" rows="2"></textarea>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-diagnosticos">Diagnósticos (CIE-10)</label>
+<input class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md" id="editar-diagnosticos" placeholder="F41.1; F32.0" type="text"/>
+<p class="font-label-md text-label-md text-on-surface-variant mt-1">Códigos separados por ; (con o sin punto).</p>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-1" for="editar-resultados">Resultados de pruebas</label>
+<input class="w-full px-3 py-2.5 bg-surface-container-lowest border border-outline-variant rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary text-body-md" id="editar-resultados" type="text"/>
+</div>
+<div class="sm:col-span-2">
+<label class="block font-label-md text-label-md text-on-surface mb-2">Acciones realizadas</label>
+<div class="flex flex-wrap gap-4" id="editar-acciones-checkboxes"></div>
+</div>
+</div>
+<p class="hidden font-label-md text-label-md text-error mt-4" id="editar-error"></p>
+<div class="flex justify-end gap-3 mt-6">
+<button class="px-5 py-2.5 rounded-lg border border-outline-variant text-primary font-semibold hover:bg-surface-container-low transition-all" id="editar-cancelar" type="button">Cancelar</button>
+<button class="px-6 py-2.5 rounded-lg bg-primary text-on-primary font-semibold hover:opacity-90 transition-all" id="editar-guardar" type="button">Guardar cambios</button>
+</div>
+</div>
+</div>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="js/sidebar.js" type="module"></script>
 <script src="js/contratas.js" type="module"></script>
