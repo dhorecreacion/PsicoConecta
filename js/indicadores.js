@@ -30,7 +30,9 @@ import {
   CASOS_COLLECTION,
   claveMes,
   fetchDisponibilidadRango,
-  fetchDisponibilidadPlantillaVieja
+  fetchDisponibilidadPlantillaVieja,
+  esCasoActivoMIBSAC,
+  requiereSeguimientoPorRiesgoOAptitud
 } from "./fb-psico.js";
 import { auth } from "./firebase-config.js";
 import { fetchFichasPorDnis } from "./fichas-cache.js";
@@ -49,8 +51,7 @@ const MESES_LARGOS = [
   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
 ];
 const CLAVE_DIA_POR_GETDAY = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
-const UMBRAL_SEGUIMIENTO_DEFAULT = 30; // respaldo si configuracion/general aún no existe
-const UMBRAL_CASO_ACTIVO_DEFAULT = 30; // ídem, para "Casos Activos"
+const UMBRAL_SEGUIMIENTO_DEFAULT = 30; // respaldo si configuracion/general aún no existe; también define el cierre automático por inactividad de "Casos Activos" (ver esCasoActivoMIBSAC en fb-psico.js)
 
 const PRIORIDAD_META = {
   high: { label: "Alta", color: "#ba1a1a" },
@@ -218,20 +219,20 @@ async function fetchUmbralSeguimiento() {
   }
 }
 
-// DNIs con el caso cerrado a mano (pacientes.html / atencion.html). Un
-// documento inexistente = caso abierto; solo importa cuando existe y
-// cerrado === true.
-async function fetchCasosCerrados() {
-  const cerrados = new Set();
+// Info de "casos" cerrados/reabiertos a mano (pacientes.html / atencion.html):
+// Map<dni, {cerrado, reabiertoEn}>. Un documento inexistente = caso abierto
+// sin reapertura registrada. Se guarda el doc completo (no solo un booleano)
+// porque "reabiertoEn" reinicia el plazo de inactividad en esCasoActivoMIBSAC
+// (fb-psico.js) — mismo criterio que Contratas.
+async function fetchCasosInfo() {
+  const info = new Map();
   try {
     const snap = await getDocs(collection(dbPsico, CASOS_COLLECTION));
-    snap.forEach((d) => {
-      if (d.data().cerrado) cerrados.add(d.id);
-    });
+    snap.forEach((d) => info.set(d.id, d.data()));
   } catch (err) {
     console.warn("No se pudo cargar el estado de casos cerrados:", err);
   }
-  return cerrados;
+  return info;
 }
 
 // ---------- Capacidad / utilización ----------
@@ -280,19 +281,8 @@ function calcularCapacidadMes(disponibilidad, anio, mes) {
   }, 0);
 }
 
-// Mismo criterio que "Casos Activos": un caso deja de contar en las
-// indicadores de "estado actual" (Casos de Riesgo, Casos Sin Seguimiento,
-// Aptitud Laboral) si el psicólogo lo cerró a mano o si la ficha de personal
-// ya no está activa (ej. cesado). Sin ficha encontrada no se descarta.
-function esCasoActivo(dni, fichas, casosCerrados) {
-  if (casosCerrados && casosCerrados.has(dni)) return false;
-  const ficha = fichas.get(dni);
-  if (ficha && ficha.activo === false) return false;
-  return true;
-}
-
 // ---------- Cálculo ----------
-function calcularIndicadores(sesiones, fichas, citas, disponibilidad, mesSeleccionado, umbralSeguimientoDias, casosCerrados) {
+function calcularIndicadores(sesiones, fichas, citas, disponibilidad, mesSeleccionado, umbralSeguimientoDias, casosInfo) {
   const ahora = new Date();
   const anio = ahora.getFullYear();
   // "general" = todo el año en curso (los 12 meses), no un mes puntual — se
@@ -300,13 +290,39 @@ function calcularIndicadores(sesiones, fichas, citas, disponibilidad, mesSelecci
   const esGeneral = mesSeleccionado === "general";
   const mes = esGeneral ? null : mesSeleccionado;
 
+  // Primera pasada: solo para saber la sesión más reciente de cada DNI —
+  // "activo" depende de ella (riesgo/aptitud y fecha de esa última sesión),
+  // así que debe conocerse antes de calcular cualquier estadística filtrada
+  // por período (igual patrón que indicadores-contratas.js).
   const dnisTotales = new Set();
+  const ultimaPorDni = new Map();
+  sesiones.forEach(({ dni, data }) => {
+    dnisTotales.add(dni);
+    const fecha = timestampToDate(data.guardadoEn);
+    const previa = ultimaPorDni.get(dni);
+    const fechaPrevia = previa ? timestampToDate(previa.guardadoEn) : null;
+    if (!previa || (fecha && (!fechaPrevia || fecha > fechaPrevia))) {
+      ultimaPorDni.set(dni, data);
+    }
+  });
+
+  // "Activo" se calcula una sola vez por DNI y se reutiliza en todo lo demás
+  // (ver esCasoActivoMIBSAC en fb-psico.js: cierre automático por
+  // inactividad para casos sin riesgo/restricciones, más el cierre manual y
+  // el de ficha inactiva).
+  const activoPorDni = new Map();
+  dnisTotales.forEach((dni) => {
+    activoPorDni.set(
+      dni,
+      esCasoActivoMIBSAC(ultimaPorDni.get(dni), fichas.get(dni), casosInfo.get(dni), umbralSeguimientoDias, ahora)
+    );
+  });
+
   const dnisMes = new Set();
   let atencionesMes = 0;
   let familiaresMes = 0;
   const familiaresPorArea = new Map(); // area del trabajador -> cantidad (mes elegido)
   const evaluadosPorMes = Array.from({ length: 12 }, () => new Set());
-  const ultimaPorDni = new Map();
   const conteoAreas = new Map();
   const conteoDiagnosticos = new Map();
   const conteoDerivaciones = new Map();
@@ -315,7 +331,6 @@ function calcularIndicadores(sesiones, fichas, citas, disponibilidad, mesSelecci
   const aptitudMes = { apto: 0, restricciones: 0, no_apto: 0 };
 
   sesiones.forEach(({ dni, data }) => {
-    dnisTotales.add(dni);
     const fecha = timestampToDate(data.guardadoEn);
     const ficha = fichas.get(dni);
     const area = ficha && ficha.area ? ficha.area : "Sin área registrada";
@@ -331,11 +346,11 @@ function calcularIndicadores(sesiones, fichas, citas, disponibilidad, mesSelecci
           // familiar no tiene ficha propia en el sistema.
           familiaresPorArea.set(area, (familiaresPorArea.get(area) || 0) + 1);
         }
-        // Aptitud Laboral: solo casos activos (no cerrados, ficha activa).
+        // Aptitud Laboral: solo casos activos.
         if (
           data.aptitud &&
           Object.prototype.hasOwnProperty.call(aptitudMes, data.aptitud) &&
-          esCasoActivo(dni, fichas, casosCerrados)
+          activoPorDni.get(dni)
         ) {
           aptitudMes[data.aptitud]++;
         }
@@ -361,12 +376,6 @@ function calcularIndicadores(sesiones, fichas, citas, disponibilidad, mesSelecci
         const modalidadKey = data.modalidad && MODALIDADES[data.modalidad] ? data.modalidad : "sin_registro";
         conteoModalidades.set(modalidadKey, (conteoModalidades.get(modalidadKey) || 0) + 1);
       }
-    }
-
-    const previa = ultimaPorDni.get(dni);
-    const fechaPrevia = previa ? timestampToDate(previa.guardadoEn) : null;
-    if (!previa || (fecha && (!fechaPrevia || fecha > fechaPrevia))) {
-      ultimaPorDni.set(dni, data);
     }
   });
 
@@ -411,15 +420,15 @@ function calcularIndicadores(sesiones, fichas, citas, disponibilidad, mesSelecci
   });
 
   // Casos: se clasifican por la ÚLTIMA sesión de cada paciente. "Casos de
-  // Riesgo" y "Casos Sin Seguimiento" solo cuentan casos activos (no
-  // cerrados a mano, ficha de personal activa) — un caso cerrado ya no
-  // necesita que se le siga avisando al psicólogo. "Distribución de
-  // Prioridades" NO se filtra: se deja histórico completo a propósito.
+  // Riesgo" y "Casos Sin Seguimiento" solo cuentan casos activos (ver
+  // activoPorDni/esCasoActivoMIBSAC arriba — ya incluye el cierre automático
+  // por inactividad). "Distribución de Prioridades" NO se filtra: se deja
+  // histórico completo a propósito.
   let casosRiesgo = 0;
   const conteoPrioridades = new Map();
   const casosSinSeguimiento = [];
   ultimaPorDni.forEach((ultima, dni) => {
-    const activo = esCasoActivo(dni, fichas, casosCerrados);
+    const activo = activoPorDni.get(dni);
 
     if (ultima.riesgo && activo) casosRiesgo++;
 
@@ -429,9 +438,10 @@ function calcularIndicadores(sesiones, fichas, citas, disponibilidad, mesSelecci
     if (!activo) return;
 
     // Casos que requieren seguimiento (riesgo o aptitud restringida) sin una
-    // sesión nueva hace más de umbralSeguimientoDias (configuracion.html).
-    const requiereSeguimiento = ultima.riesgo || ultima.aptitud === "restricciones" || ultima.aptitud === "no_apto";
-    if (!requiereSeguimiento) return;
+    // sesión nueva hace más de umbralSeguimientoDias (configuracion.html) —
+    // si llevan más de ese plazo y NO requieren seguimiento, ya se cerraron
+    // solos (esCasoActivoMIBSAC) y no llegan aquí.
+    if (!requiereSeguimientoPorRiesgoOAptitud(ultima)) return;
     const fechaUltima = timestampToDate(ultima.guardadoEn);
     if (!fechaUltima) return;
     const diasSinAtender = Math.floor((ahora - fechaUltima) / (1000 * 60 * 60 * 24));
@@ -472,11 +482,14 @@ function calcularIndicadores(sesiones, fichas, citas, disponibilidad, mesSelecci
     .sort((a, b) => b.cuenta - a.cuenta)
     .slice(0, 6);
 
-  // Casos Activos: DNIs con al menos una sesión que pasan esCasoActivo().
+  // Casos Activos/Cerrados: DNIs con al menos una sesión, según
+  // esCasoActivoMIBSAC() (manual o cerrado automáticamente por inactividad).
+  // Son complementarios: todo DNI con sesiones cae en uno u otro.
   let casosActivos = 0;
   dnisTotales.forEach((dni) => {
-    if (esCasoActivo(dni, fichas, casosCerrados)) casosActivos++;
+    if (activoPorDni.get(dni)) casosActivos++;
   });
+  const casosCerrados = dnisTotales.size - casosActivos;
 
   // "General": la capacidad y la asistencia se suman en los 12 meses del año
   // en vez de tomar un solo mes.
@@ -504,6 +517,7 @@ function calcularIndicadores(sesiones, fichas, citas, disponibilidad, mesSelecci
     capacidadMes: capacidadMes,
     utilizacion: porcentaje(atencionesMes, capacidadMes),
     casosActivos: casosActivos,
+    casosCerrados: casosCerrados,
     casosRiesgo: casosRiesgo,
     casosSinSeguimiento: casosSinSeguimiento,
     evaluadosPorMes: evaluadosPorMes.map((set) => set.size),
@@ -515,6 +529,7 @@ function calcularIndicadores(sesiones, fichas, citas, disponibilidad, mesSelecci
     conteoModalidades: conteoModalidades,
     conteoMotivos: conteoMotivos,
     diagnosticoTopPorArea: diagnosticoTopPorArea,
+    diagPorArea: diagPorArea,
     aptitudMes: aptitudMes,
     edades: edades,
     generos: generos,
@@ -530,7 +545,9 @@ function renderKpis(ind) {
   setTexto("kpi-participacion", ind.participacion + "%");
   setTexto("kpi-atendidos-mes", String(ind.atendidosMes));
   setTexto("kpi-casos-activos", String(ind.casosActivos));
+  setTexto("kpi-casos-cerrados", String(ind.casosCerrados));
   setTexto("riskValue", String(ind.casosRiesgo));
+  setTexto("kpi-sin-seguimiento", String(ind.casosSinSeguimiento.length));
   setTexto("kpi-capacidad", ind.utilizacion + "%");
   setTexto("kpi-familiares", String(ind.familiaresMes));
   setTexto("kpi-no-asistidas", String(ind.noAsistidasMes));
@@ -930,6 +947,119 @@ function construirFilasEM1() {
   });
 }
 
+// ---------- Hojas adicionales para Power BI (mismo archivo que Reporte Eje
+// Mental, hojas aparte): el resto del tablero de indicadores.html, en
+// formato "largo" (una fila por mes + categoría) — es como Power BI espera
+// los datos para poder filtrarlos y graficarlos él mismo, a diferencia de
+// las tarjetas/donuts pensados para leerse a simple vista en el tablero.
+const NOMBRE_KPI_MES = {
+  atencionesMes: "Atenciones",
+  participacion: "Participación",
+  atendidosMes: "Atendidos",
+  capacidadMes: "Capacidad",
+  utilizacion: "Utilización",
+  familiaresMes: "Familiares Atendidos",
+  noAsistidasMes: "No Asistidas",
+  reprogramadasMes: "Reprogramadas"
+};
+const UNIDAD_KPI_MES = {
+  atencionesMes: "casos",
+  participacion: "%",
+  atendidosMes: "personas",
+  capacidadMes: "turnos",
+  utilizacion: "%",
+  familiaresMes: "casos",
+  noAsistidasMes: "citas",
+  reprogramadasMes: "citas"
+};
+
+function construirHojasPowerBI() {
+  // calcularIndicadores ya separa qué cuenta "del mes elegido" (áreas,
+  // modalidades, derivaciones, aptitud, diagnósticos, familiares) de qué es
+  // histórico/snapshot completo sin importar el mes (prioridades, motivos,
+  // edades, género, casos sin seguimiento, casos activos/riesgo) — aquí se
+  // recorren los 12 meses del año para lo primero, y se toma un solo cálculo
+  // para lo segundo (da el mismo resultado sin importar qué mes se le pase).
+  const indicadoresPorMes = Array.from({ length: 12 }, (_, mes) =>
+    calcularIndicadores(
+      datosGlobales.sesiones,
+      datosGlobales.fichas,
+      datosGlobales.citas,
+      datosGlobales.disponibilidad,
+      mes,
+      datosGlobales.umbralSeguimiento,
+      datosGlobales.casosInfo
+    )
+  );
+
+  const kpisMensuales = [];
+  const casosPorArea = [];
+  const modalidades = [];
+  const derivaciones = [];
+  const aptitudLaboral = [];
+  const diagnosticos = [];
+  const diagnosticoPorArea = [];
+  const familiaresPorArea = [];
+
+  indicadoresPorMes.forEach((ind, mesIdx) => {
+    const nombreMes = MESES_LARGOS[mesIdx];
+
+    Object.keys(NOMBRE_KPI_MES).forEach((campo) => {
+      kpisMensuales.push([nombreMes, NOMBRE_KPI_MES[campo], ind[campo], UNIDAD_KPI_MES[campo]]);
+    });
+
+    ind.conteoAreas.forEach((cantidad, area) => casosPorArea.push([nombreMes, area, cantidad]));
+
+    ind.conteoModalidades.forEach((cantidad, clave) => {
+      const etiqueta = clave === "sin_registro" ? "Sin registro" : (MODALIDADES[clave] ? MODALIDADES[clave].label : clave);
+      modalidades.push([nombreMes, etiqueta, cantidad]);
+    });
+
+    ind.conteoDerivaciones.forEach((cantidad, derivacion) => derivaciones.push([nombreMes, derivacion, cantidad]));
+
+    ["apto", "restricciones", "no_apto"].forEach((clave) => {
+      if (ind.aptitudMes[clave] > 0) aptitudLaboral.push([nombreMes, APTITUD_META[clave].label, ind.aptitudMes[clave]]);
+    });
+
+    ind.conteoDiagnosticos.forEach((cantidad, diagnostico) => diagnosticos.push([nombreMes, diagnostico, cantidad]));
+
+    ind.diagPorArea.forEach((mapaDiag, area) => {
+      mapaDiag.forEach((cantidad, diagnostico) => diagnosticoPorArea.push([nombreMes, area, diagnostico, cantidad]));
+    });
+
+    ind.familiaresPorArea.forEach((cantidad, area) => familiaresPorArea.push([nombreMes, area, cantidad]));
+  });
+
+  const indBase = indicadoresPorMes[0];
+
+  const prioridades = Array.from(indBase.conteoPrioridades.entries()).map(([clave, cantidad]) => [
+    PRIORIDAD_META[clave] ? PRIORIDAD_META[clave].label : clave,
+    cantidad
+  ]);
+
+  const motivos = Array.from(indBase.conteoMotivos.entries()).map(([motivo, cantidad]) => [motivo, cantidad]);
+
+  const edades = Object.entries(indBase.edades).map(([rango, cantidad]) => [rango, cantidad]);
+
+  const generos = Array.from(indBase.generos.entries()).map(([genero, cantidad]) => [genero, cantidad]);
+
+  const casosSinSeguimiento = indBase.casosSinSeguimiento.map((c) => [c.dni, c.nombre || "", c.dias]);
+
+  const resumenActual = [
+    ["Casos Activos", indBase.casosActivos],
+    ["Casos Cerrados", indBase.casosCerrados],
+    ["Casos de Riesgo", indBase.casosRiesgo],
+    ["Casos Sin Seguimiento", indBase.casosSinSeguimiento.length],
+    ["Fecha de corte", new Date().toISOString().slice(0, 10)]
+  ];
+
+  return {
+    kpisMensuales, casosPorArea, modalidades, derivaciones, aptitudLaboral,
+    diagnosticos, diagnosticoPorArea, familiaresPorArea,
+    prioridades, motivos, edades, generos, casosSinSeguimiento, resumenActual
+  };
+}
+
 document.getElementById("export-eje-mental-btn").addEventListener("click", () => {
   if (typeof XLSX === "undefined") {
     alert("No se pudo cargar el componente de Excel. Revisa tu conexión a internet y recarga la página.");
@@ -950,6 +1080,30 @@ document.getElementById("export-eje-mental-btn").addEventListener("click", () =>
 
   const hojaEM3 = XLSX.utils.aoa_to_sheet([["porcentajeEncuesta"]]);
   XLSX.utils.book_append_sheet(libro, hojaEM3, "EM_3");
+
+  // Resto del tablero, en hojas aparte, para que el mismo archivo alimente
+  // directamente un dashboard de Power BI.
+  if (datosGlobales) {
+    const hojas = construirHojasPowerBI();
+    const agregarHoja = (nombre, encabezado, filas) => {
+      XLSX.utils.book_append_sheet(libro, XLSX.utils.aoa_to_sheet([encabezado, ...filas]), nombre);
+    };
+
+    agregarHoja("KPIs_Mensuales", ["Mes", "Indicador", "Valor", "Unidad"], hojas.kpisMensuales);
+    agregarHoja("CasosPorArea", ["Mes", "Área", "Cantidad"], hojas.casosPorArea);
+    agregarHoja("Modalidades", ["Mes", "Modalidad", "Cantidad"], hojas.modalidades);
+    agregarHoja("Derivaciones", ["Mes", "Derivación", "Cantidad"], hojas.derivaciones);
+    agregarHoja("AptitudLaboral", ["Mes", "Aptitud", "Cantidad"], hojas.aptitudLaboral);
+    agregarHoja("Diagnosticos", ["Mes", "Diagnóstico", "Cantidad"], hojas.diagnosticos);
+    agregarHoja("DiagnosticoPorArea", ["Mes", "Área", "Diagnóstico", "Cantidad"], hojas.diagnosticoPorArea);
+    agregarHoja("FamiliaresPorArea", ["Mes", "Área", "Cantidad"], hojas.familiaresPorArea);
+    agregarHoja("Prioridades", ["Prioridad", "Cantidad"], hojas.prioridades);
+    agregarHoja("Motivos", ["Motivo", "Cantidad"], hojas.motivos);
+    agregarHoja("Edades", ["RangoEdad", "Cantidad"], hojas.edades);
+    agregarHoja("Genero", ["Genero", "Cantidad"], hojas.generos);
+    agregarHoja("CasosSinSeguimiento", ["DNI", "Nombre", "DiasSinAtender"], hojas.casosSinSeguimiento);
+    agregarHoja("Resumen_Actual", ["Indicador", "Valor"], hojas.resumenActual);
+  }
 
   const hoy = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(libro, `reporte-eje-mental-${hoy}.xlsx`);
@@ -972,7 +1126,7 @@ function recalcularYRenderizar() {
       datosGlobales.disponibilidad,
       mesSeleccionado,
       datosGlobales.umbralSeguimiento,
-      datosGlobales.casosCerrados
+      datosGlobales.casosInfo
     )
   );
 }
@@ -984,15 +1138,15 @@ async function inicializar() {
     const sesiones = await fetchSesiones();
     const dnis = Array.from(new Set(sesiones.map((s) => s.dni)));
 
-    const [fichas, citas, disponibilidad, umbralSeguimiento, casosCerrados] = await Promise.all([
+    const [fichas, citas, disponibilidad, umbralSeguimiento, casosInfo] = await Promise.all([
       dnis.length ? fetchFichasPorDnis(dnis) : Promise.resolve(new Map()),
       fetchCitas(),
       fetchDisponibilidadCompleta(),
       fetchUmbralSeguimiento(),
-      fetchCasosCerrados()
+      fetchCasosInfo()
     ]);
 
-    datosGlobales = { sesiones, fichas, citas, disponibilidad, umbralSeguimiento, casosCerrados };
+    datosGlobales = { sesiones, fichas, citas, disponibilidad, umbralSeguimiento, casosInfo };
     mesSelector.value = "general";
     recalcularYRenderizar();
   } catch (err) {

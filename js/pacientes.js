@@ -7,16 +7,19 @@
 //   4. fichas (firebase-config, autenticado): nombre y área, pedidos por
 //      lotes con where("personal.doc", "in", [...]) solo para los DNIs que
 //      realmente aparecen en el directorio.
-import { dbPsico, PACIENTES_COLLECTION, CASOS_COLLECTION } from "./fb-psico.js";
+import { dbPsico, PACIENTES_COLLECTION, CASOS_COLLECTION, CONFIGURACION_COLLECTION, esCasoActivoMIBSAC } from "./fb-psico.js";
 import { fetchFichasPorDnis } from "./fichas-cache.js";
 import {
   collection,
   collectionGroup,
   getDocs,
   doc,
+  getDoc,
   setDoc,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const UMBRAL_SEGUIMIENTO_DEFAULT = 30; // respaldo si configuracion/general aún no existe
 
 const searchInput = document.getElementById("search-input");
 const areaFilter = document.getElementById("area-filter");
@@ -63,15 +66,29 @@ async function fetchReservas() {
   return reservas;
 }
 
-// Caso cerrado a mano (independiente de la reserva y de las sesiones): si no
-// existe el documento, el caso está abierto.
-async function fetchCasosCerrados() {
+// Info de "casos" cerrados/reabiertos a mano: Map<dni, {cerrado, reabiertoEn}>.
+// Se guarda el doc completo (no solo un booleano) porque "reabiertoEn"
+// reinicia el plazo de inactividad en esCasoActivoMIBSAC (fb-psico.js).
+async function fetchCasosInfo() {
   const snap = await getDocs(collection(dbPsico, CASOS_COLLECTION));
-  const cerrados = new Set();
-  snap.forEach((d) => {
-    if (d.data().cerrado) cerrados.add(d.id);
-  });
-  return cerrados;
+  const info = new Map();
+  snap.forEach((d) => info.set(d.id, d.data()));
+  return info;
+}
+
+// Umbral de días sin sesión para considerar un caso "sin seguimiento" y,
+// para un caso normal (sin riesgo/restricciones), para cerrarlo solo por
+// inactividad — mismo criterio y mismo ajuste que indicadores.html
+// (configuracion.html).
+async function fetchUmbralSeguimiento() {
+  try {
+    const snap = await getDoc(doc(dbPsico, CONFIGURACION_COLLECTION, "general"));
+    const valor = snap.exists() ? Number(snap.data().umbralSeguimientoDias) : NaN;
+    return Number.isInteger(valor) && valor > 0 ? valor : UMBRAL_SEGUIMIENTO_DEFAULT;
+  } catch (err) {
+    console.warn("No se pudo cargar el umbral de seguimiento; se usa el valor por defecto:", err);
+    return UMBRAL_SEGUIMIENTO_DEFAULT;
+  }
 }
 
 async function fetchSesionesAgrupadas() {
@@ -104,11 +121,13 @@ async function fetchSesionesAgrupadas() {
 
 // ---------- Armado de registros ----------
 async function cargarRegistros() {
-  const [reservas, sesionesPorDni, casosCerrados] = await Promise.all([
+  const [reservas, sesionesPorDni, casosInfo, umbralSeguimientoDias] = await Promise.all([
     fetchReservas(),
     fetchSesionesAgrupadas(),
-    fetchCasosCerrados()
+    fetchCasosInfo(),
+    fetchUmbralSeguimiento()
   ]);
+  const ahora = new Date();
 
   // Un paciente puede tener reserva sin sesiones, o sesiones sin reserva
   // vigente: el directorio muestra la unión de ambos conjuntos.
@@ -125,6 +144,14 @@ async function cargarRegistros() {
     const fechaReserva = reserva ? timestampToDate(reserva.creadoEn) : null;
     const ultimaActividad = fechaUltimaSesion || fechaReserva;
 
+    // "Activo" usa el mismo criterio que "Casos Activos" en indicadores.html
+    // (esCasoActivoMIBSAC en fb-psico.js): cierre manual, ficha inactiva, o
+    // cierre automático por inactividad si el caso no requiere seguimiento
+    // (sin riesgo ni aptitud restringida) y pasó el umbral configurado desde
+    // la última sesión. "cerrado" refleja el resultado final (manual o
+    // automático), así el botón Cerrar/Reabrir actúa igual en ambos casos.
+    const activo = esCasoActivoMIBSAC(ultimaSesion, ficha, casosInfo.get(dni), umbralSeguimientoDias, ahora);
+
     return {
       dni: dni,
       nombre: ficha ? ficha.nombre : "",
@@ -136,7 +163,7 @@ async function cargarRegistros() {
       fechaUltimaSesion: fechaUltimaSesion,
       proximaCita: reserva && reserva.fechaLabel && reserva.hora ? `${reserva.fechaLabel}, ${reserva.hora}` : "",
       ultimaActividad: ultimaActividad,
-      cerrado: casosCerrados.has(dni),
+      cerrado: !activo,
       fichaInactiva: !!(ficha && ficha.activo === false)
     };
   });
@@ -262,8 +289,13 @@ function crearFilaPaciente(registro) {
 
 // Cierra o reabre un caso a mano (colección "casos", independiente de la
 // reserva vigente y de las sesiones) — afecta a "Casos Activos" en
-// indicadores.html. Actualiza el registro local y vuelve a pintar la fila
-// en vez de recargar todo el directorio.
+// indicadores.html. "registro.cerrado" ya refleja tanto un cierre manual
+// como uno automático por inactividad (ver esCasoActivoMIBSAC en
+// fb-psico.js), así que el botón actúa igual en ambos casos: al cerrar queda
+// cerrado hasta que se reabra a mano; al reabrir se guarda "reabiertoEn"
+// para reiniciar el plazo de inactividad (si no, un caso normal sin sesión
+// nueva volvería a cerrarse solo de inmediato). Actualiza el registro local
+// y vuelve a pintar la fila en vez de recargar todo el directorio.
 async function toggleCaso(registro, boton) {
   const nuevoValor = !registro.cerrado;
   const verbo = nuevoValor ? "cerrar" : "reabrir";
@@ -271,11 +303,10 @@ async function toggleCaso(registro, boton) {
 
   boton.disabled = true;
   try {
-    await setDoc(
-      doc(dbPsico, CASOS_COLLECTION, registro.dni),
-      { cerrado: nuevoValor, actualizadoEn: serverTimestamp() },
-      { merge: true }
-    );
+    const datos = nuevoValor
+      ? { cerrado: true, actualizadoEn: serverTimestamp() }
+      : { cerrado: false, reabiertoEn: serverTimestamp(), actualizadoEn: serverTimestamp() };
+    await setDoc(doc(dbPsico, CASOS_COLLECTION, registro.dni), datos, { merge: true });
     registro.cerrado = nuevoValor;
     renderLista();
   } catch (err) {

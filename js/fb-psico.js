@@ -118,34 +118,70 @@ export async function fetchDisponibilidadFecha(fechaISO) {
 export const CONTRATAS_COLLECTION = "contratas_registros";
 export const CONTRATAS_CASOS_COLLECTION = "contratas_casos";
 
-// Un caso de Contratas "requiere seguimiento" si tiene riesgo o la aptitud
-// laboral quedó con restricciones/no apta (mismo criterio que "Casos Sin
-// Seguimiento" en indicadores-contratas.js): estos nunca se cierran solos
-// por inactividad, necesitan que el psicólogo los revise y cierre a mano.
-export function requiereSeguimientoContratas(ultima) {
+// ---------- Casos: requiere seguimiento / activo por inactividad ----------
+// Compartido por MIBSAC (indicadores.js/pacientes.js, última SESIÓN) y
+// Contratas (contratas.js/indicadores-contratas.js, último REGISTRO
+// importado) — ambos guardan "riesgo"/"aptitud" con el mismo vocabulario.
+// Un caso "requiere seguimiento" si quedó con riesgo o aptitud restringida/
+// no apta: estos nunca se cierran solos por inactividad, necesitan que el
+// psicólogo los revise y cierre a mano.
+export function requiereSeguimientoPorRiesgoOAptitud(ultima) {
   return !!(ultima && (ultima.riesgo || ultima.aptitud === "restricciones" || ultima.aptitud === "no_apto"));
 }
+export const requiereSeguimientoContratas = requiereSeguimientoPorRiesgoOAptitud;
 
 // Activo = no cerrado a mano, Y si no requiere seguimiento, con actividad
-// (última atención o última reapertura manual) dentro del umbral de días
-// de Configuración. Pasado ese plazo, un caso normal (sin riesgo/
-// restricciones) se considera cerrado automáticamente SIN escribir nada en
-// Firestore: en cuanto llega una atención nueva (reimportando el Excel) o
-// se reabre a mano, vuelve a contar como activo por otro período completo.
-// Usado por contratas.js (directorio) e indicadores-contratas.js (KPIs),
-// para que ambos coincidan siempre en qué casos están activos.
-export function esCasoActivoContratas(ultima, infoCaso, umbralSeguimientoDias, ahora) {
-  if (infoCaso && infoCaso.cerrado === true) return false;
-  if (requiereSeguimientoContratas(ultima)) return true;
+// (última atención o última reapertura manual) dentro del umbral de días de
+// Configuración. Pasado ese plazo, un caso normal (sin riesgo/restricciones)
+// se considera cerrado automáticamente SIN escribir nada en Firestore: en
+// cuanto llega una atención nueva o se reabre a mano, vuelve a contar como
+// activo por otro período completo. Recibe fechas ya resueltas (Date, no
+// Timestamp) porque cada colección guarda su "última actividad" bajo un
+// nombre de campo distinto (registradoEn en Contratas, guardadoEn en
+// sesiones de MIBSAC).
+export function esCasoActivoPorInactividad(requiereSeguimiento, fechaUltimaActividad, fechaReapertura, cerradoManual, umbralSeguimientoDias, ahora) {
+  if (cerradoManual === true) return false;
+  if (requiereSeguimiento) return true;
 
-  const fechaUltima = ultima && ultima.registradoEn && typeof ultima.registradoEn.toDate === "function" ? ultima.registradoEn.toDate() : null;
-  const reabiertoEn = infoCaso && infoCaso.reabiertoEn && typeof infoCaso.reabiertoEn.toDate === "function" ? infoCaso.reabiertoEn.toDate() : null;
-  const referencias = [fechaUltima, reabiertoEn].filter(Boolean);
+  const referencias = [fechaUltimaActividad, fechaReapertura].filter(Boolean);
   if (referencias.length === 0) return true;
 
   const masReciente = new Date(Math.max(...referencias.map((d) => d.getTime())));
   const dias = Math.floor((ahora - masReciente) / (1000 * 60 * 60 * 24));
   return dias <= umbralSeguimientoDias;
+}
+
+function timestampADate(timestamp) {
+  return timestamp && typeof timestamp.toDate === "function" ? timestamp.toDate() : null;
+}
+
+// Usado por contratas.js (directorio) e indicadores-contratas.js (KPIs),
+// para que ambos coincidan siempre en qué casos están activos.
+export function esCasoActivoContratas(ultima, infoCaso, umbralSeguimientoDias, ahora) {
+  return esCasoActivoPorInactividad(
+    requiereSeguimientoPorRiesgoOAptitud(ultima),
+    timestampADate(ultima && ultima.registradoEn),
+    timestampADate(infoCaso && infoCaso.reabiertoEn),
+    !!(infoCaso && infoCaso.cerrado === true),
+    umbralSeguimientoDias,
+    ahora
+  );
+}
+
+// Equivalente de MIBSAC: además se cierra de inmediato (sin importar
+// actividad reciente) si la ficha de personal ya no está activa (ej.
+// cesado) — Contratas no tiene este caso porque no depende de una ficha
+// externa. Usado por indicadores.js (KPIs) y pacientes.js (directorio).
+export function esCasoActivoMIBSAC(ultimaSesion, ficha, infoCaso, umbralSeguimientoDias, ahora) {
+  if (ficha && ficha.activo === false) return false;
+  return esCasoActivoPorInactividad(
+    requiereSeguimientoPorRiesgoOAptitud(ultimaSesion),
+    timestampADate(ultimaSesion && ultimaSesion.guardadoEn),
+    timestampADate(infoCaso && infoCaso.reabiertoEn),
+    !!(infoCaso && infoCaso.cerrado === true),
+    umbralSeguimientoDias,
+    ahora
+  );
 }
 
 // Registra un evento inmutable del ciclo de vida de una cita (reservada,

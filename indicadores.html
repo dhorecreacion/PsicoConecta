@@ -115,6 +115,19 @@
 <p class="text-on-surface-variant font-label-md">Casos Activos</p>
 <h4 class="text-3xl font-bold text-primary mt-1" id="kpi-casos-activos">—</h4>
 </div>
+<!-- Metric: Casos Cerrados (a mano o cerrados automáticamente por
+     inactividad — ver esCasoActivoMIBSAC en fb-psico.js). Complementario a
+     "Casos Activos": todo paciente con sesiones cae en uno de los dos. -->
+<div class="glass-card p-6 rounded-xl transition-all hover:-translate-y-1">
+<div class="flex justify-between items-start mb-4">
+<div class="p-2 rounded-lg bg-surface-container-high text-on-surface-variant">
+<span class="material-symbols-outlined">folder_off</span>
+</div>
+<span class="text-xs font-bold text-primary/40 bg-surface-container-high px-2 py-1 rounded">Manual o automático</span>
+</div>
+<p class="text-on-surface-variant font-label-md">Casos Cerrados</p>
+<h4 class="text-3xl font-bold text-primary mt-1" id="kpi-casos-cerrados">—</h4>
+</div>
 <!-- Metric 6: Casos de Riesgo -->
 <div class="glass-card p-6 rounded-xl transition-all hover:-translate-y-1 bg-red-50/50 border-red-100" id="riskCasesCard">
 <div class="flex justify-between items-start mb-4">
@@ -125,6 +138,19 @@
 </div>
 <p class="text-on-surface-variant font-label-md" id="riskLabel">Casos de Riesgo</p>
 <h4 class="text-3xl font-bold text-primary mt-1" id="riskValue">—</h4>
+</div>
+<!-- Metric: Casos Sin Seguimiento (riesgo/restricción activos sin sesión
+     reciente, pasado el umbral de Configuración — ver chart-seguimiento
+     más abajo para el detalle por paciente) -->
+<div class="glass-card p-6 rounded-xl transition-all hover:-translate-y-1 bg-orange-50/50 border-orange-100">
+<div class="flex justify-between items-start mb-4">
+<div class="p-2 rounded-lg bg-orange-100 text-orange-700">
+<span class="material-symbols-outlined">event_busy</span>
+</div>
+<span class="text-xs font-bold text-orange-700 bg-white px-2 py-1 rounded shadow-sm">Requiere acción</span>
+</div>
+<p class="text-on-surface-variant font-label-md">Casos Sin Seguimiento</p>
+<h4 class="text-3xl font-bold text-primary mt-1" id="kpi-sin-seguimiento">—</h4>
 </div>
 <!-- Metric 7: % Capacidad Utilizada (sesiones del mes vs. bloques disponibles) -->
 <div class="glass-card p-6 rounded-xl transition-all hover:-translate-y-1">
