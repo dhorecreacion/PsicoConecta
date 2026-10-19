@@ -62,6 +62,7 @@ const statPendientes = document.getElementById("stat-pendientes");
 const statAtendidas = document.getElementById("stat-atendidas");
 const statInasistencias = document.getElementById("stat-inasistencias");
 const filterHoyBtn = document.getElementById("filter-hoy");
+const filterPendientesBtn = document.getElementById("filter-pendientes");
 const filterTodasBtn = document.getElementById("filter-todas");
 
 let reservas = []; // [{ dni, data }]
@@ -291,10 +292,19 @@ function crearTarjetaCita(reserva) {
   return card;
 }
 
+// "Pendientes" muestra TODAS las citas que faltan atender (reservada o
+// reprogramada), sin importar la fecha — a diferencia de "Hoy" (solo la
+// fecha de hoy) y "Todas" (el histórico completo, incluidas las ya
+// atendidas/no asistidas). El orden ascendente (más antigua primero) ya
+// sirve para las tres vistas: en "Pendientes" deja arriba las más vencidas.
 function renderLista() {
   const hoyISO = formatearFechaISO(new Date());
   const visibles = reservas
-    .filter((r) => filtroActual === "todas" || r.data.fecha === hoyISO)
+    .filter((r) => {
+      if (filtroActual === "todas") return true;
+      if (filtroActual === "pendientes") return esPendiente(estadoDe(r.data));
+      return r.data.fecha === hoyISO;
+    })
     .sort((a, b) => `${a.data.fecha || ""}${a.data.hora || ""}`.localeCompare(`${b.data.fecha || ""}${b.data.hora || ""}`));
 
   appointmentsList.innerHTML = "";
@@ -302,7 +312,12 @@ function renderLista() {
   if (visibles.length === 0) {
     const vacio = document.createElement("p");
     vacio.className = "text-body-md text-on-surface-variant p-4";
-    vacio.textContent = filtroActual === "hoy" ? "No hay citas programadas para hoy." : "No hay citas registradas todavía.";
+    vacio.textContent =
+      filtroActual === "hoy"
+        ? "No hay citas programadas para hoy."
+        : filtroActual === "pendientes"
+          ? "No hay citas pendientes por atender."
+          : "No hay citas registradas todavía.";
     appointmentsList.appendChild(vacio);
     return;
   }
@@ -342,11 +357,13 @@ const FILTER_INACTIVE = "px-4 py-1.5 rounded-full bg-surface-container-high text
 function setFiltro(filtro) {
   filtroActual = filtro;
   filterHoyBtn.className = filtro === "hoy" ? FILTER_ACTIVE : FILTER_INACTIVE;
+  filterPendientesBtn.className = filtro === "pendientes" ? FILTER_ACTIVE : FILTER_INACTIVE;
   filterTodasBtn.className = filtro === "todas" ? FILTER_ACTIVE : FILTER_INACTIVE;
   renderLista();
 }
 
 filterHoyBtn.addEventListener("click", () => setFiltro("hoy"));
+filterPendientesBtn.addEventListener("click", () => setFiltro("pendientes"));
 filterTodasBtn.addEventListener("click", () => setFiltro("todas"));
 
 // ---------- No asistió ----------

@@ -16,7 +16,8 @@ import {
   setDoc,
   addDoc,
   deleteDoc,
-  serverTimestamp
+  serverTimestamp,
+  Timestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { dbPsico, PACIENTES_COLLECTION, CONFIGURACION_COLLECTION, HISTORIAL_CITAS_SUBCOLLECTION, CASOS_COLLECTION, MODALIDADES, registrarHistorialCita } from "./fb-psico.js";
 import { cargarCie10 } from "./cie10.js";
@@ -214,6 +215,20 @@ function formatFechaGuardado(timestamp) {
   });
 }
 
+// Convierte un Date a texto "AAAA-MM-DDTHH:mm" en hora LOCAL (lo que espera
+// el valor de un <input type="datetime-local">) — a diferencia de
+// toISOString(), que es en UTC y correría la hora mostrada.
+function dateToDatetimeLocalValue(date) {
+  if (!date) return "";
+  var pad = function (n) {
+    return String(n).padStart(2, "0");
+  };
+  return (
+    date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate()) +
+    "T" + pad(date.getHours()) + ":" + pad(date.getMinutes())
+  );
+}
+
 function buildHistorialItem(data) {
   var item = document.createElement("div");
   item.className = "border border-outline-variant rounded-lg overflow-hidden";
@@ -240,6 +255,28 @@ function buildHistorialItem(data) {
   var diagnosticosTexto = (data.diagnosticos || []).map(function (d) { return d.label; }).join(", ") || "—";
   var accionesTexto = (data.accionesRealizadas || []).join(", ") || "—";
 
+  // El borrador (si existe) ya está precargado en el formulario de arriba
+  // (ver loadPatientData) con sus propios botones de guardado — "Editar esta
+  // sesión" aquí reutilizaría el flujo de edición de sesiones COMPLETADAS
+  // (actualizarSesion), que siempre conserva el estado original del
+  // documento: en un borrador, eso significa que se queda en "borrador" para
+  // siempre sin importar cuántas veces se "actualice". Para evitar ese
+  // callejón sin salida, el ítem de borrador no ofrece "editar" aquí —
+  // dirige al formulario de arriba, donde "Guardar y Agendar Siguiente" sí
+  // lo convierte en una sesión completada.
+  var pieHtml = data.estado === "borrador"
+    ? '<div class="pt-2 space-y-2">' +
+        '<p class="text-label-md text-on-surface-variant">Este borrador ya está cargado en el formulario de arriba. Complétalo ahí y usa "Guardar y Agendar Siguiente" para que quede como sesión completada.</p>' +
+        '<button type="button" class="historial-scroll-btn flex items-center gap-2 text-secondary font-semibold text-body-md hover:underline">' +
+          '<span class="material-symbols-outlined text-lg">arrow_upward</span> Ir al formulario' +
+        "</button>" +
+      "</div>"
+    : '<div class="pt-2">' +
+        '<button type="button" class="historial-edit-btn flex items-center gap-2 text-secondary font-semibold text-body-md hover:underline">' +
+          '<span class="material-symbols-outlined text-lg">edit</span> Editar esta sesión' +
+        "</button>" +
+      "</div>";
+
   item.innerHTML =
     '<button type="button" class="historial-item-toggle w-full flex items-center justify-between gap-3 p-3 hover:bg-surface-container-low transition-colors text-left">' +
       '<div class="flex items-center gap-2 flex-wrap">' +
@@ -260,11 +297,7 @@ function buildHistorialItem(data) {
       "<p><strong>Diagnósticos:</strong> " + diagnosticosTexto + "</p>" +
       "<p><strong>Acciones realizadas:</strong> " + accionesTexto + "</p>" +
       "<p><strong>Resultados de pruebas:</strong> " + (data.resultadosPruebas || "—") + "</p>" +
-      '<div class="pt-2">' +
-        '<button type="button" class="historial-edit-btn flex items-center gap-2 text-secondary font-semibold text-body-md hover:underline">' +
-          '<span class="material-symbols-outlined text-lg">edit</span> Editar esta sesión' +
-        "</button>" +
-      "</div>" +
+      pieHtml +
     "</div>";
 
   if (data.esParaFamiliar) {
@@ -279,10 +312,21 @@ function buildHistorialItem(data) {
     item.lastElementChild.classList.toggle("hidden");
   });
 
-  item.querySelector(".historial-edit-btn").addEventListener("click", function (e) {
-    e.stopPropagation();
-    iniciarEdicionSesion(data);
-  });
+  var editBtn = item.querySelector(".historial-edit-btn");
+  if (editBtn) {
+    editBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      iniciarEdicionSesion(data);
+    });
+  }
+
+  var scrollBtn = item.querySelector(".historial-scroll-btn");
+  if (scrollBtn) {
+    scrollBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      formulario.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
 
   return item;
 }
@@ -959,8 +1003,14 @@ cancelBtn.addEventListener("click", async function () {
 // toca el borrador-actual).
 var updateSessionBtn = document.getElementById("update-session-btn");
 var editModeBanner = document.getElementById("edit-mode-banner");
-var editModeFecha = document.getElementById("edit-mode-fecha");
+var editModeFechaInput = document.getElementById("edit-mode-fecha-input");
 var editModeCancel = document.getElementById("edit-mode-cancel");
+
+// Editar la fecha no toca el <form>, así que se marca "sucio" aparte, para
+// que el aviso de "cambios sin guardar" (beforeunload) también la cubra.
+editModeFechaInput.addEventListener("input", function () {
+  formularioSucio = true;
+});
 
 var sesionEnEdicionId = null;
 var sesionEnEdicionMeta = null; // { estado, modalidad, esParaFamiliar, familiarNombre, familiarParentesco } del documento original, para no perderlos al actualizar
@@ -993,7 +1043,13 @@ function iniciarEdicionSesion(data) {
   renderFormFromSesion(data);
   document.getElementById("draft-indicator").classList.add("hidden");
 
-  editModeFecha.textContent = formatFechaGuardado(data.guardadoEn);
+  // Si el documento no trae una fecha válida (dato legado/atípico), el campo
+  // queda vacío en vez de caer en "ahora": actualizarSesion ya rechaza guardar
+  // sin una fecha explícita, así que esto obliga al administrador a elegir
+  // una a propósito en vez de sobrescribir en silencio la fecha real (que
+  // puede ser desconocida, no "hoy") con la hora en que edita la sesión.
+  var fechaActual = data.guardadoEn && typeof data.guardadoEn.toDate === "function" ? data.guardadoEn.toDate() : null;
+  editModeFechaInput.value = fechaActual ? dateToDatetimeLocalValue(fechaActual) : "";
   editModeBanner.classList.remove("hidden");
   editModeBanner.classList.add("flex");
 
@@ -1020,6 +1076,15 @@ async function actualizarSesion() {
     return;
   }
 
+  // La fecha es editable (facultad del administrador para corregir cuándo
+  // ocurrió realmente la sesión) — afecta el orden del historial y los
+  // indicadores mensuales, así que se valida antes de guardar.
+  var nuevaFecha = editModeFechaInput.value ? new Date(editModeFechaInput.value) : null;
+  if (!nuevaFecha || Number.isNaN(nuevaFecha.getTime())) {
+    alert("Ingresa una fecha y hora válidas para la sesión.");
+    return;
+  }
+
   var originalHtml = updateSessionBtn.innerHTML;
   updateSessionBtn.disabled = true;
   updateSessionBtn.textContent = "Actualizando...";
@@ -1032,7 +1097,8 @@ async function actualizarSesion() {
         modalidad: sesionEnEdicionMeta.modalidad,
         esParaFamiliar: sesionEnEdicionMeta.esParaFamiliar,
         familiarNombre: sesionEnEdicionMeta.familiarNombre,
-        familiarParentesco: sesionEnEdicionMeta.familiarParentesco
+        familiarParentesco: sesionEnEdicionMeta.familiarParentesco,
+        guardadoEn: Timestamp.fromDate(nuevaFecha)
       }),
       { merge: true }
     );
