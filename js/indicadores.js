@@ -1060,53 +1060,206 @@ function construirHojasPowerBI() {
   };
 }
 
-document.getElementById("export-eje-mental-btn").addEventListener("click", () => {
+// ---------- Reporte maestro anonimizado (hoja aparte, mismo archivo) ----------
+// Mismo contenido que el "reporte maestro" de pacientes.html/importador.js
+// (sesiones + citas en una sola hoja), pero sin ningún dato que identifique
+// a la persona: nada de DNI real, nombre, teléfono, ni nombre del familiar.
+// En su lugar, cada persona recibe una etiqueta ("Persona 1", "Persona 2"...)
+// y un código de letras — ambos consistentes en todas sus filas — para que
+// se pueda analizar y agrupar por persona sin saber quién es. El orden
+// (Persona 1 = quien más sesiones/citas tiene) también es anónimo: no sigue
+// ningún criterio ligado a la identidad real.
+const ESTADO_CITA_LABEL_ANONIMO = { reservada: "Reservada", atendida: "Atendida", no_asistio: "No Asistió", reprogramada: "Reprogramada" };
+const ASISTIO_CITA_LABEL_ANONIMO = { atendida: "Sí", no_asistio: "No" };
+
+const COLUMNAS_REPORTE_ANONIMO = [
+  "Tipo", "Persona", "Código", "Área", "Sede", "Fecha", "Hora", "Modalidad",
+  "Familiar", "Parentesco Familiar", "Estado", "Asistió", "Motivo", "Riesgo",
+  "Frecuencia", "Prioridad", "Derivación", "Aptitud", "Observaciones",
+  "Recomendaciones", "Evolución", "Diagnósticos", "Acciones", "Resultados"
+];
+
+// Igual que fetchCitas(), pero conservando el DNI del padre (collectionGroup
+// no lo trae en los datos del documento) — necesario aquí para poder agrupar
+// cada cita bajo su persona anónima.
+async function fetchCitasConDni() {
+  const snap = await getDocs(collectionGroup(dbPsico, "historial_citas"));
+  const citas = [];
+  snap.forEach((d) => citas.push({ dni: d.ref.parent.parent.id, data: d.data() }));
+  return citas;
+}
+
+// Código corto de letras por persona (A, B, ..., Z, AA, AB, ...), igual que
+// los encabezados de columna de Excel — nunca se repite y no tiene relación
+// con el DNI real.
+function generarCodigoLetras(indiceBase0) {
+  let n = indiceBase0 + 1;
+  let letras = "";
+  while (n > 0) {
+    const resto = (n - 1) % 26;
+    letras = String.fromCharCode(65 + resto) + letras;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letras;
+}
+
+async function construirHojaReporteAnonimo() {
+  const sesiones = datosGlobales.sesiones;
+  const fichas = datosGlobales.fichas;
+  const citas = await fetchCitasConDni();
+
+  // Ranking de personas por volumen de registros (sesiones + citas) — solo
+  // decide el orden de las etiquetas, no se expone en la hoja.
+  const totalPorDni = new Map();
+  sesiones.forEach(({ dni }) => totalPorDni.set(dni, (totalPorDni.get(dni) || 0) + 1));
+  citas.forEach(({ dni }) => totalPorDni.set(dni, (totalPorDni.get(dni) || 0) + 1));
+
+  const dnisOrdenados = Array.from(totalPorDni.entries())
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+    .map(([dni]) => dni);
+
+  const personaPorDni = new Map();
+  dnisOrdenados.forEach((dni, indice) => {
+    personaPorDni.set(dni, { label: "Persona " + (indice + 1), codigo: generarCodigoLetras(indice) });
+  });
+
+  const filas = [];
+
+  sesiones.forEach(({ dni, data }) => {
+    const ficha = fichas.get(dni) || {};
+    const persona = personaPorDni.get(dni);
+    const fechaObj = data.guardadoEn && typeof data.guardadoEn.toDate === "function" ? data.guardadoEn.toDate() : null;
+
+    filas.push({
+      orden: fechaObj ? fechaObj.getTime() : 0,
+      fila: [
+        "Sesión",
+        persona.label,
+        persona.codigo,
+        ficha.area || "",
+        ficha.sede || "",
+        fechaObj ? fechaObj.toISOString().slice(0, 10) : "",
+        fechaObj ? fechaObj.toTimeString().slice(0, 5) : "",
+        data.modalidad || "",
+        data.esParaFamiliar ? "Sí" : "No",
+        data.familiarParentesco || "",
+        "Completada",
+        "Sí",
+        data.motivoConsulta || "",
+        data.riesgo ? "Sí" : "No",
+        data.frecuencia || "",
+        data.prioridad || "",
+        data.derivacion || "",
+        data.aptitud || "",
+        data.observaciones || "",
+        data.recomendaciones || "",
+        data.evolucion || "",
+        (data.diagnosticos || []).map((d) => d.label).join("; "),
+        (data.accionesRealizadas || []).join("; "),
+        data.resultadosPruebas || ""
+      ]
+    });
+  });
+
+  citas.forEach(({ dni, data }) => {
+    const ficha = fichas.get(dni) || {};
+    const persona = personaPorDni.get(dni);
+    const fechaObj = data.fecha ? new Date(`${data.fecha}T${data.hora || "00:00"}:00`) : null;
+
+    filas.push({
+      orden: fechaObj && !Number.isNaN(fechaObj.getTime()) ? fechaObj.getTime() : 0,
+      fila: [
+        "Cita",
+        persona.label,
+        persona.codigo,
+        ficha.area || "",
+        ficha.sede || "",
+        data.fecha || "",
+        data.hora || "",
+        data.modalidad || "",
+        data.esParaFamiliar ? "Sí" : "No",
+        data.familiarParentesco || "",
+        ESTADO_CITA_LABEL_ANONIMO[data.estado] || data.estado || "",
+        ASISTIO_CITA_LABEL_ANONIMO[data.estado] || "",
+        data.motivo || "",
+        "", "", "", "", "", "", "", "", "", "", ""
+      ]
+    });
+  });
+
+  filas.sort((a, b) => b.orden - a.orden);
+  return filas.map((f) => f.fila);
+}
+
+document.getElementById("export-eje-mental-btn").addEventListener("click", async () => {
   if (typeof XLSX === "undefined") {
     alert("No se pudo cargar el componente de Excel. Revisa tu conexión a internet y recarga la página.");
     return;
   }
 
-  const libro = XLSX.utils.book_new();
+  const exportBtn = document.getElementById("export-eje-mental-btn");
+  const originalHtml = exportBtn.innerHTML;
+  exportBtn.disabled = true;
+  exportBtn.textContent = "Generando...";
 
-  const hojaEM1 = XLSX.utils.aoa_to_sheet([
-    ["Mes", "Casos Atendidos", "Citas_Sesiones", "Indicador"],
-    ...construirFilasEM1()
-  ]);
-  XLSX.utils.book_append_sheet(libro, hojaEM1, "EM_1");
+  try {
+    const libro = XLSX.utils.book_new();
 
-  // EM_2 y EM_3: solo encabezado, sin filas — se llenan para otra cosa.
-  const hojaEM2 = XLSX.utils.aoa_to_sheet([["NombreCampaña", "Tipo", "Numerador", "Total", "Indicador"]]);
-  XLSX.utils.book_append_sheet(libro, hojaEM2, "EM_2");
+    const hojaEM1 = XLSX.utils.aoa_to_sheet([
+      ["Mes", "Casos Atendidos", "Citas_Sesiones", "Indicador"],
+      ...construirFilasEM1()
+    ]);
+    XLSX.utils.book_append_sheet(libro, hojaEM1, "EM_1");
 
-  const hojaEM3 = XLSX.utils.aoa_to_sheet([["porcentajeEncuesta"]]);
-  XLSX.utils.book_append_sheet(libro, hojaEM3, "EM_3");
+    // EM_2 y EM_3: solo encabezado, sin filas — se llenan para otra cosa.
+    const hojaEM2 = XLSX.utils.aoa_to_sheet([["NombreCampaña", "Tipo", "Numerador", "Total", "Indicador"]]);
+    XLSX.utils.book_append_sheet(libro, hojaEM2, "EM_2");
 
-  // Resto del tablero, en hojas aparte, para que el mismo archivo alimente
-  // directamente un dashboard de Power BI.
-  if (datosGlobales) {
-    const hojas = construirHojasPowerBI();
-    const agregarHoja = (nombre, encabezado, filas) => {
-      XLSX.utils.book_append_sheet(libro, XLSX.utils.aoa_to_sheet([encabezado, ...filas]), nombre);
-    };
+    const hojaEM3 = XLSX.utils.aoa_to_sheet([["porcentajeEncuesta"]]);
+    XLSX.utils.book_append_sheet(libro, hojaEM3, "EM_3");
 
-    agregarHoja("KPIs_Mensuales", ["Mes", "Indicador", "Valor", "Unidad"], hojas.kpisMensuales);
-    agregarHoja("CasosPorArea", ["Mes", "Área", "Cantidad"], hojas.casosPorArea);
-    agregarHoja("Modalidades", ["Mes", "Modalidad", "Cantidad"], hojas.modalidades);
-    agregarHoja("Derivaciones", ["Mes", "Derivación", "Cantidad"], hojas.derivaciones);
-    agregarHoja("AptitudLaboral", ["Mes", "Aptitud", "Cantidad"], hojas.aptitudLaboral);
-    agregarHoja("Diagnosticos", ["Mes", "Diagnóstico", "Cantidad"], hojas.diagnosticos);
-    agregarHoja("DiagnosticoPorArea", ["Mes", "Área", "Diagnóstico", "Cantidad"], hojas.diagnosticoPorArea);
-    agregarHoja("FamiliaresPorArea", ["Mes", "Área", "Cantidad"], hojas.familiaresPorArea);
-    agregarHoja("Prioridades", ["Prioridad", "Cantidad"], hojas.prioridades);
-    agregarHoja("Motivos", ["Motivo", "Cantidad"], hojas.motivos);
-    agregarHoja("Edades", ["RangoEdad", "Cantidad"], hojas.edades);
-    agregarHoja("Genero", ["Genero", "Cantidad"], hojas.generos);
-    agregarHoja("CasosSinSeguimiento", ["DNI", "Nombre", "DiasSinAtender"], hojas.casosSinSeguimiento);
-    agregarHoja("Resumen_Actual", ["Indicador", "Valor"], hojas.resumenActual);
+    // Resto del tablero, en hojas aparte, para que el mismo archivo alimente
+    // directamente un dashboard de Power BI.
+    if (datosGlobales) {
+      const hojas = construirHojasPowerBI();
+      const agregarHoja = (nombre, encabezado, filas) => {
+        XLSX.utils.book_append_sheet(libro, XLSX.utils.aoa_to_sheet([encabezado, ...filas]), nombre);
+      };
+
+      agregarHoja("KPIs_Mensuales", ["Mes", "Indicador", "Valor", "Unidad"], hojas.kpisMensuales);
+      agregarHoja("CasosPorArea", ["Mes", "Área", "Cantidad"], hojas.casosPorArea);
+      agregarHoja("Modalidades", ["Mes", "Modalidad", "Cantidad"], hojas.modalidades);
+      agregarHoja("Derivaciones", ["Mes", "Derivación", "Cantidad"], hojas.derivaciones);
+      agregarHoja("AptitudLaboral", ["Mes", "Aptitud", "Cantidad"], hojas.aptitudLaboral);
+      agregarHoja("Diagnosticos", ["Mes", "Diagnóstico", "Cantidad"], hojas.diagnosticos);
+      agregarHoja("DiagnosticoPorArea", ["Mes", "Área", "Diagnóstico", "Cantidad"], hojas.diagnosticoPorArea);
+      agregarHoja("FamiliaresPorArea", ["Mes", "Área", "Cantidad"], hojas.familiaresPorArea);
+      agregarHoja("Prioridades", ["Prioridad", "Cantidad"], hojas.prioridades);
+      agregarHoja("Motivos", ["Motivo", "Cantidad"], hojas.motivos);
+      agregarHoja("Edades", ["RangoEdad", "Cantidad"], hojas.edades);
+      agregarHoja("Genero", ["Genero", "Cantidad"], hojas.generos);
+      agregarHoja("CasosSinSeguimiento", ["DNI", "Nombre", "DiasSinAtender"], hojas.casosSinSeguimiento);
+      agregarHoja("Resumen_Actual", ["Indicador", "Valor"], hojas.resumenActual);
+
+      // Reporte maestro (sesiones + citas) sin datos que identifiquen a la
+      // persona — ver construirHojaReporteAnonimo arriba.
+      const filasAnonimas = await construirHojaReporteAnonimo();
+      XLSX.utils.book_append_sheet(
+        libro,
+        XLSX.utils.aoa_to_sheet([COLUMNAS_REPORTE_ANONIMO, ...filasAnonimas]),
+        "ReporteMaestroAnonimo"
+      );
+    }
+
+    const hoy = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(libro, `reporte-eje-mental-${hoy}.xlsx`);
+  } catch (err) {
+    console.error("Error al generar el reporte Eje Mental:", err);
+    alert("No se pudo generar el reporte. Revisa la consola.");
+  } finally {
+    exportBtn.disabled = false;
+    exportBtn.innerHTML = originalHtml;
   }
-
-  const hoy = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(libro, `reporte-eje-mental-${hoy}.xlsx`);
 });
 
 // ---------- Inicio (tras confirmar sesión, para que fichas no rebote) ----------
