@@ -58,15 +58,9 @@ const familiarCheckbox = document.getElementById("familiar-checkbox");
 const familiarFields = document.getElementById("familiar-fields");
 const familiarNombreInput = document.getElementById("familiar-nombre");
 const familiarParentescoSelect = document.getElementById("familiar-parentesco");
-const familiarParentescoOtroWrap = document.getElementById("familiar-parentesco-otro-wrap");
-const familiarParentescoOtroInput = document.getElementById("familiar-parentesco-otro");
 
 familiarCheckbox.addEventListener("change", () => {
   familiarFields.classList.toggle("hidden", !familiarCheckbox.checked);
-});
-
-familiarParentescoSelect.addEventListener("change", () => {
-  familiarParentescoOtroWrap.classList.toggle("hidden", familiarParentescoSelect.value !== "otro");
 });
 
 // Datos del familiar tal como se guardan y se muestran en la confirmación.
@@ -74,12 +68,10 @@ function obtenerDatosFamiliar() {
   if (!familiarCheckbox.checked) {
     return { esParaFamiliar: false, familiarNombre: "", familiarParentesco: "" };
   }
-  const parentesco =
-    familiarParentescoSelect.value === "otro" ? familiarParentescoOtroInput.value.trim() : familiarParentescoSelect.value;
   return {
     esParaFamiliar: true,
     familiarNombre: familiarNombreInput.value.trim(),
-    familiarParentesco: parentesco
+    familiarParentesco: familiarParentescoSelect.value
   };
 }
 
@@ -88,8 +80,6 @@ function limpiarCamposFamiliar() {
   familiarFields.classList.add("hidden");
   familiarNombreInput.value = "";
   familiarParentescoSelect.value = "";
-  familiarParentescoOtroWrap.classList.add("hidden");
-  familiarParentescoOtroInput.value = "";
 }
 
 // Disponibilidad por fecha exacta (ver fetchDisponibilidadRango en

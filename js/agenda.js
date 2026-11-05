@@ -689,7 +689,7 @@ const nuevaCitaTelefonoInput = document.getElementById("nueva-cita-telefono");
 const nuevaCitaFamiliarCheck = document.getElementById("nueva-cita-familiar-check");
 const nuevaCitaFamiliarFields = document.getElementById("nueva-cita-familiar-fields");
 const nuevaCitaFamiliarNombreInput = document.getElementById("nueva-cita-familiar-nombre");
-const nuevaCitaFamiliarParentescoInput = document.getElementById("nueva-cita-familiar-parentesco");
+const nuevaCitaFamiliarParentescoSelect = document.getElementById("nueva-cita-familiar-parentesco");
 const nuevaCitaFecha = document.getElementById("nueva-cita-fecha");
 const nuevaCitaHoras = document.getElementById("nueva-cita-horas");
 const nuevaCitaError = document.getElementById("nueva-cita-error");
@@ -707,7 +707,7 @@ function abrirModalNuevaCita() {
   nuevaCitaFamiliarCheck.checked = false;
   nuevaCitaFamiliarFields.classList.add("hidden");
   nuevaCitaFamiliarNombreInput.value = "";
-  nuevaCitaFamiliarParentescoInput.value = "";
+  nuevaCitaFamiliarParentescoSelect.value = "";
   nuevaCitaFecha.value = "";
   nuevaCitaFecha.min = formatearFechaISO(new Date());
   nuevaCitaHoras.innerHTML = '<p class="col-span-full text-body-md text-on-surface-variant">Elige primero una fecha.</p>';
@@ -811,7 +811,7 @@ nuevaCitaGuardar.addEventListener("click", async () => {
 
   const esFamiliar = nuevaCitaFamiliarCheck.checked;
   const familiarNombre = esFamiliar ? nuevaCitaFamiliarNombreInput.value.trim() : "";
-  const familiarParentesco = esFamiliar ? nuevaCitaFamiliarParentescoInput.value.trim() : "";
+  const familiarParentesco = esFamiliar ? nuevaCitaFamiliarParentescoSelect.value : "";
 
   const fecha = new Date(`${fechaISO}T00:00:00`);
   const datosFamiliar = { esParaFamiliar: esFamiliar, familiarNombre: familiarNombre || null, familiarParentesco: familiarParentesco || null };
