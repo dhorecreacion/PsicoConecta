@@ -2,11 +2,12 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /pacientes/{dni} {
+      // Este documento en sí ya no lo escribe ninguna vista (ver
+      // pacientes/{dni}/citas más abajo); se deja de solo lectura por los
+      // docs viejos que fetchTodasLasCitas() todavía necesita leer para
+      // migrarlos una sola vez (fb-psico.js).
       allow read: if true;
-      allow create: if request.resource.data.dni is string
-                    && request.resource.data.dni.size() > 0
-                    && request.resource.data.dni.size() < 10;
-      allow update: if request.resource.data.dni == resource.data.dni;
+      allow create, update: if false;
       allow delete: if false;
 
       match /sesiones/{sesionId} {
@@ -26,6 +27,22 @@ service cloud.firestore {
         allow read: if true;
         allow delete: if false;
       }
+
+      // Cada cita es su propio documento (en vez de un único pacientes/{dni}
+      // que se sobreescribía con cada reserva nueva) — así un mismo DNI
+      // puede tener varias citas vigentes a la vez (ej. una para el
+      // colaborador y otra para su familiar, el mismo día). "create" lo usa
+      // tanto la reserva pública (index.html) como "Nueva Cita"/Reprogramar/
+      // No Asistió en agenda.html; "update" lo usa Reprogramar/No Asistió/
+      // atencion.js sobre una cita que ya existe.
+      match /citas/{citaId} {
+        allow read: if true;
+        allow create: if request.resource.data.dni is string
+                      && request.resource.data.dni.size() > 0
+                      && request.resource.data.dni.size() < 10;
+        allow update: if request.resource.data.dni == resource.data.dni;
+        allow delete: if false;
+      }
     }
 
     // Necesario aparte para que collectionGroup(dbPsico, "sesiones")
@@ -37,6 +54,17 @@ service cloud.firestore {
     // Igual, para collectionGroup(dbPsico, "historial_citas") en indicadores.js.
     match /{path=**}/historial_citas/{historialId} {
       allow read: if true;
+    }
+
+    // Igual, para collectionGroup(dbPsico, "citas") en index.js/agenda.js/
+    // pacientes.js/fb-psico.js (fetchTodasLasCitas).
+    match /{path=**}/citas/{citaId} {
+      allow read: if true;
+      allow create: if request.resource.data.dni is string
+                    && request.resource.data.dni.size() > 0
+                    && request.resource.data.dni.size() < 10;
+      allow update: if request.resource.data.dni == resource.data.dni;
+      allow delete: if false;
     }
 
     match /disponibilidad/{dia} {

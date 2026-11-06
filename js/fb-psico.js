@@ -7,6 +7,7 @@ import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebase
 import {
   getFirestore,
   collection,
+  collectionGroup,
   addDoc,
   doc,
   getDoc,
@@ -35,15 +36,72 @@ export const dbPsico = getFirestore(app);
 export const PACIENTES_COLLECTION = "pacientes";
 export const DISPONIBILIDAD_COLLECTION = "disponibilidad";
 export const HISTORIAL_CITAS_SUBCOLLECTION = "historial_citas";
+
+// ---------- Citas (reservas) por fecha/hora ----------
+// Antes pacientes/{dni} era UN SOLO documento con "la reserva vigente" de esa
+// persona — se sobreescribía con cada reserva nueva. Eso rompía un caso real:
+// reservar una cita para el colaborador Y otra para su familiar (que no tiene
+// DNI propio, así que usa el mismo documento) el mismo día: la segunda
+// pisaba a la primera sin aviso. Ahora cada cita es su propio documento en
+// pacientes/{dni}/citas/{citaId}, así un mismo DNI puede tener varias citas
+// vigentes a la vez. El documento pacientes/{dni} en sí ya no se usa para
+// nada — sigue existiendo en Firestore por los datos viejos (ver
+// fetchTodasLasCitas), pero ninguna vista nueva lo lee ni le escribe.
+export const CITAS_SUBCOLLECTION = "citas";
+
+// De varias citas de un mismo DNI, elige la más relevante para mostrarla
+// como "la cita de esta persona": la pendiente (reservada/reprogramada) más
+// próxima, o si no hay ninguna pendiente, la más reciente en general — para
+// no dejar vacía una vista que solo puede mostrar una. Usado por
+// pacientes.js (directorio, "próxima cita") y atencion.js (cuando no se
+// sabe exactamente cuál cita se quiere, ej. la alerta de riesgo solo conoce
+// el DNI, no un citaId puntual).
+export function elegirCitaRepresentativa(citas) {
+  if (!citas || citas.length === 0) return null;
+  const ordenadas = citas
+    .slice()
+    .sort((a, b) => `${a.data.fecha || ""}${a.data.hora || ""}`.localeCompare(`${b.data.fecha || ""}${b.data.hora || ""}`));
+  const pendientes = ordenadas.filter((c) => c.data.estado === "reservada" || c.data.estado === "reprogramada");
+  return pendientes.length > 0 ? pendientes[0] : ordenadas[ordenadas.length - 1];
+}
+
+// Todas las citas de todos los DNIs (agenda.js, pacientes.js), con su DNI y
+// su citaId — necesarios para poder actualizar/reprogramar la cita correcta
+// cuando una persona tiene más de una. La primera vez que se llama tras este
+// cambio, migra en silencio (sin borrar nada) los documentos pacientes/{dni}
+// viejos que todavía tengan una reserva (fecha+hora) y no se hayan migrado
+// todavía — así ninguna cita que ya estaba vigente antes de este cambio
+// desaparece de la agenda.
+export async function fetchTodasLasCitas() {
+  const citasSnap = await getDocs(collectionGroup(dbPsico, CITAS_SUBCOLLECTION));
+  const citas = citasSnap.docs.map((d) => ({ dni: d.ref.parent.parent.id, citaId: d.id, data: d.data() }));
+
+  const dnisConCitaNueva = new Set(citas.map((c) => c.dni));
+  const pacientesSnap = await getDocs(collection(dbPsico, PACIENTES_COLLECTION));
+  const porMigrar = [];
+  pacientesSnap.forEach((d) => {
+    const data = d.data();
+    if (!data.fecha || !data.hora || dnisConCitaNueva.has(d.id)) return;
+    porMigrar.push({ dni: d.id, data });
+  });
+
+  if (porMigrar.length === 0) return citas;
+
+  await Promise.all(
+    porMigrar.map(({ dni, data }) => addDoc(collection(dbPsico, PACIENTES_COLLECTION, dni, CITAS_SUBCOLLECTION), data))
+  );
+  const citasSnap2 = await getDocs(collectionGroup(dbPsico, CITAS_SUBCOLLECTION));
+  return citasSnap2.docs.map((d) => ({ dni: d.ref.parent.parent.id, citaId: d.id, data: d.data() }));
+}
 // Ajustes generales del sistema, editables desde configuracion.html:
 // configuracion/general (umbralSeguimientoDias) y configuracion/catalogos
 // (derivaciones, acciones) — ver js/configuracion.js.
 export const CONFIGURACION_COLLECTION = "configuracion";
 // Estado de "caso" por DNI (cerrado manualmente por el psicólogo, ej. el
-// trabajador ya no necesita seguimiento) — independiente de pacientes/{dni}
-// (que es la reserva vigente y se sobreescribe en cada cita nueva). Si no
-// existe el documento, el caso se considera abierto. Usado por pacientes.js,
-// atencion.js e indicadores.js (para "Casos Activos").
+// trabajador ya no necesita seguimiento) — independiente de las citas y
+// sesiones de ese DNI. Si no existe el documento, el caso se considera
+// abierto. Usado por pacientes.js, atencion.js e indicadores.js (para
+// "Casos Activos").
 export const CASOS_COLLECTION = "casos";
 export const DIAS_SEMANA = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"];
 
@@ -185,13 +243,14 @@ export function esCasoActivoMIBSAC(ultimaSesion, ficha, infoCaso, umbralSeguimie
 }
 
 // Registra un evento inmutable del ciclo de vida de una cita (reservada,
-// no_asistio, reprogramada, atendida). A diferencia de pacientes/{dni} —que
-// se sobreescribe en cada reserva nueva y por eso solo refleja el último
-// desenlace— esto acumula un historial real, para poder calcular indicadores
-// de tendencia (ej. % de asistencia) sin depender solo del estado actual.
-// Se llama desde index.js (reservada), agenda.js (no_asistio/reprogramada)
-// y atencion.js (atendida); si falla, no debe bloquear la acción principal
-// (ya se guardó lo importante en pacientes/{dni}), solo se registra el error.
+// no_asistio, reprogramada, atendida) — a diferencia de pacientes/{dni}/citas
+// (que refleja el estado actual de cada cita puntual y se actualiza en el
+// mismo documento), esto acumula un historial real que nunca se pisa, para
+// poder calcular indicadores de tendencia (ej. % de asistencia) sin depender
+// solo del estado actual. Se llama desde index.js (reservada), agenda.js
+// (no_asistio/reprogramada) y atencion.js (atendida); si falla, no debe
+// bloquear la acción principal (ya se guardó lo importante en la cita),
+// solo se registra el error.
 export async function registrarHistorialCita(dni, datos) {
   await addDoc(collection(dbPsico, PACIENTES_COLLECTION, dni, HISTORIAL_CITAS_SUBCOLLECTION), {
     ...datos,

@@ -1,17 +1,21 @@
 // Agenda del Día (V3), con datos y estados reales.
-// Cada cita vive en pacientes/{dni} (fb-psico) y ahora lleva un campo
-// "estado": reservada (por defecto) → atendida (lo marca atencion.js al
-// guardar la sesión final) / no_asistio / reprogramada (se marcan aquí).
-// Los nombres y áreas salen de las fichas de personal (firebase-config,
-// autenticado), pedidos por lotes como en pacientes.js.
+// Cada cita vive en pacientes/{dni}/citas/{citaId} (fb-psico) — un mismo DNI
+// puede tener varias citas a la vez (ej. una del colaborador y otra de su
+// familiar, el mismo día) — y lleva un campo "estado": reservada (por
+// defecto) → atendida (lo marca atencion.js al guardar la sesión final) /
+// no_asistio / reprogramada (se marcan aquí). Los nombres y áreas salen de
+// las fichas de personal (firebase-config, autenticado), pedidos por lotes
+// como en pacientes.js.
 import {
   dbPsico,
   PACIENTES_COLLECTION,
+  CITAS_SUBCOLLECTION,
   DISPONIBILIDAD_COLLECTION,
   MODALIDADES,
   MOTIVOS_INASISTENCIA,
   registrarHistorialCita,
-  fetchDisponibilidadFecha
+  fetchDisponibilidadFecha,
+  fetchTodasLasCitas
 } from "./fb-psico.js";
 import { auth } from "./firebase-config.js";
 import { fetchFichasPorDnis } from "./fichas-cache.js";
@@ -22,8 +26,8 @@ import {
   getDocs,
   doc,
   getDoc,
+  addDoc,
   updateDoc,
-  setDoc,
   serverTimestamp,
   query,
   where,
@@ -65,7 +69,7 @@ const filterHoyBtn = document.getElementById("filter-hoy");
 const filterPendientesBtn = document.getElementById("filter-pendientes");
 const filterTodasBtn = document.getElementById("filter-todas");
 
-let reservas = []; // [{ dni, data }]
+let reservas = []; // [{ dni, citaId, data }]
 let fichasMap = new Map();
 let intervaloMinutos = 30; // duración de cita; la configura el administrador
 let filtroActual = "hoy";
@@ -104,13 +108,6 @@ function getInitials(fullName) {
 }
 
 // ---------- Carga de datos ----------
-async function fetchReservas() {
-  const snap = await getDocs(collection(dbPsico, PACIENTES_COLLECTION));
-  const lista = [];
-  snap.forEach((d) => lista.push({ dni: d.id, data: d.data() }));
-  return lista;
-}
-
 async function fetchIntervaloMinutos() {
   const snap = await getDoc(doc(dbPsico, DISPONIBILIDAD_COLLECTION, "config"));
   if (snap.exists()) {
@@ -263,7 +260,8 @@ function crearTarjetaCita(reserva) {
     "p-2 rounded-lg bg-secondary/10 text-secondary hover:bg-secondary hover:text-on-secondary transition-all";
   abrirBtn.innerHTML = '<span class="material-symbols-outlined">' + (estadoKey === "atendida" ? "folder_open" : "play_arrow") + "</span>";
   abrirBtn.addEventListener("click", () => {
-    window.location.href = "atencion.html?dni=" + encodeURIComponent(reserva.dni);
+    window.location.href =
+      "atencion.html?dni=" + encodeURIComponent(reserva.dni) + "&citaId=" + encodeURIComponent(reserva.citaId);
   });
   acciones.appendChild(abrirBtn);
 
@@ -412,7 +410,10 @@ noAsistioGuardar.addEventListener("click", async () => {
   noAsistioGuardar.textContent = "Guardando...";
 
   try {
-    await updateDoc(doc(dbPsico, PACIENTES_COLLECTION, reserva.dni), { estado: "no_asistio", motivo });
+    await updateDoc(doc(dbPsico, PACIENTES_COLLECTION, reserva.dni, CITAS_SUBCOLLECTION, reserva.citaId), {
+      estado: "no_asistio",
+      motivo
+    });
     registrarHistorialCita(reserva.dni, {
       estado: "no_asistio",
       fecha: reserva.data.fecha,
@@ -479,8 +480,11 @@ function generarHorasDelDia(bloques) {
     .sort((a, b) => a.hora.localeCompare(b.hora));
 }
 
-function horaOcupada(fechaISO, hora, dniExcluido) {
-  return reservas.some((r) => r.dni !== dniExcluido && r.data.fecha === fechaISO && r.data.hora === hora);
+// Excluye por citaId (no por dni): un mismo DNI puede tener otra cita
+// legítima a esa misma hora de un día distinto, así que solo se descarta la
+// cita puntual que se está reprogramando, no todas las del DNI.
+function horaOcupada(fechaISO, hora, citaIdExcluido) {
+  return reservas.some((r) => r.citaId !== citaIdExcluido && r.data.fecha === fechaISO && r.data.hora === hora);
 }
 
 function abrirModalReprogramar(reserva) {
@@ -529,7 +533,7 @@ async function renderHorasReprogramacion() {
   }
 
   turnos.forEach((turno) => {
-    const ocupada = horaOcupada(fechaISO, turno.hora, reservaEnReprogramacion.dni);
+    const ocupada = horaOcupada(fechaISO, turno.hora, reservaEnReprogramacion.citaId);
     const meta = MODALIDADES[turno.modalidad] || MODALIDADES.presencial;
     const btn = document.createElement("button");
     btn.type = "button";
@@ -597,7 +601,10 @@ reprogramarGuardar.addEventListener("click", async () => {
   reprogramarGuardar.textContent = "Guardando...";
 
   try {
-    await updateDoc(doc(dbPsico, PACIENTES_COLLECTION, reservaEnReprogramacion.dni), cambios);
+    await updateDoc(
+      doc(dbPsico, PACIENTES_COLLECTION, reservaEnReprogramacion.dni, CITAS_SUBCOLLECTION, reservaEnReprogramacion.citaId),
+      cambios
+    );
     // El historial de citas (para estadísticas de asistencia) no tiene un
     // estado "reprogramada" aparte: reprogramar solo mueve una cita
     // pendiente a otra fecha, así que se registra como "reservada" de
@@ -833,7 +840,7 @@ nuevaCitaGuardar.addEventListener("click", async () => {
   nuevaCitaGuardar.textContent = "Creando...";
 
   try {
-    await setDoc(doc(dbPsico, PACIENTES_COLLECTION, dni), datos, { merge: true });
+    await addDoc(collection(dbPsico, PACIENTES_COLLECTION, dni, CITAS_SUBCOLLECTION), datos);
     registrarHistorialCita(dni, {
       estado: "reservada",
       fecha: fechaISO,
@@ -870,7 +877,7 @@ function renderHeaderFecha() {
 // esto) y repinta — usado tras crear una cita nueva desde el FAB, para que
 // aparezca en la lista sin recargar la página.
 async function refrescarReservas() {
-  reservas = await fetchReservas();
+  reservas = await fetchTodasLasCitas();
   const dnis = reservas.map((r) => r.dni);
   fichasMap = dnis.length ? await fetchFichasPorDnis(dnis) : new Map();
   renderStats();

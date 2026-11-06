@@ -19,7 +19,7 @@ import {
   serverTimestamp,
   Timestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { dbPsico, PACIENTES_COLLECTION, CONFIGURACION_COLLECTION, HISTORIAL_CITAS_SUBCOLLECTION, CASOS_COLLECTION, MODALIDADES, registrarHistorialCita } from "./fb-psico.js";
+import { dbPsico, PACIENTES_COLLECTION, CITAS_SUBCOLLECTION, CONFIGURACION_COLLECTION, HISTORIAL_CITAS_SUBCOLLECTION, CASOS_COLLECTION, MODALIDADES, registrarHistorialCita, elegirCitaRepresentativa } from "./fb-psico.js";
 import { cargarCie10 } from "./cie10.js";
 
 // Catálogos editables desde configuracion.html; estos son solo el respaldo
@@ -86,7 +86,11 @@ const patientSession = document.getElementById("patient-session");
 const patientDatetime = document.getElementById("patient-datetime");
 
 // Cita vigente del paciente (para copiar su modalidad a la sesión guardada).
+// Un mismo DNI puede tener varias citas a la vez (ver CITAS_SUBCOLLECTION en
+// fb-psico.js), así que citaActualId guarda CUÁL de ellas es la que se está
+// atendiendo ahora, para poder marcarla "atendida" sin tocar las demás.
 let citaActual = null;
+let citaActualId = null;
 let casoCerrado = false;
 
 const toggleCasoBtn = document.getElementById("toggle-caso-btn");
@@ -158,9 +162,25 @@ function renderFichaSocial(ficha) {
   patientSede.textContent = ficha.sede || "—";
 }
 
-async function fetchCita(dni) {
-  const snap = await getDoc(doc(dbPsico, PACIENTES_COLLECTION, dni));
-  return snap.exists() ? snap.data() : null;
+function citasCollectionDe(dniValue) {
+  return collection(dbPsico, PACIENTES_COLLECTION, dniValue, CITAS_SUBCOLLECTION);
+}
+
+// Si la URL trae "citaId" (desde agenda.html, que ya sabe exactamente cuál
+// tarjeta se abrió), se usa esa cita puntual. Si no (ej. desde la alerta de
+// riesgo, que solo conoce el DNI), se adivina la más relevante: la pendiente
+// más próxima, o si no hay ninguna pendiente, la más reciente en general —
+// para que el encabezado no quede vacío.
+async function fetchCita(dni, citaId) {
+  if (citaId) {
+    const snap = await getDoc(doc(dbPsico, PACIENTES_COLLECTION, dni, CITAS_SUBCOLLECTION, citaId));
+    return snap.exists() ? { citaId: citaId, data: snap.data() } : null;
+  }
+
+  const snap = await getDocs(citasCollectionDe(dni));
+  const candidatas = [];
+  snap.forEach((d) => candidatas.push({ citaId: d.id, data: d.data() }));
+  return elegirCitaRepresentativa(candidatas);
 }
 
 // Caso cerrado a mano (colección "casos", independiente de la reserva y de
@@ -549,9 +569,9 @@ async function loadPatientData(dni) {
   }
 
   try {
-    const [ficha, cita, borrador, historial, citas, cerrado] = await Promise.all([
+    const [ficha, citaResultado, borrador, historial, citas, cerrado] = await Promise.all([
       fetchFicha(dni),
-      fetchCita(dni),
+      fetchCita(dni, citaIdUrl),
       fetchBorrador(dni),
       fetchHistorialSesiones(dni),
       fetchHistorialCitas(dni),
@@ -567,6 +587,8 @@ async function loadPatientData(dni) {
       renderFichaSocial(ficha);
     }
 
+    const cita = citaResultado ? citaResultado.data : null;
+    citaActualId = citaResultado ? citaResultado.citaId : null;
     citaActual = cita;
     patientDatetime.textContent = cita && cita.fechaLabel && cita.hora ? `${cita.fechaLabel} — ${cita.hora}` : "—";
 
@@ -600,6 +622,7 @@ async function loadPatientData(dni) {
 }
 
 const dni = new URLSearchParams(window.location.search).get("dni");
+const citaIdUrl = new URLSearchParams(window.location.search).get("citaId");
 
 onAuthStateChanged(auth, (user) => {
   if (!user) {
@@ -906,9 +929,17 @@ async function guardarYAgendarSiguiente() {
       // El borrador puede no existir; no es un error real, se ignora.
     }
 
-    // La cita de este paciente pasa a "atendida" (la agenda la pinta en gris).
+    // La cita puntual que se atendió pasa a "atendida" (la agenda la pinta en
+    // gris) — solo si se sabe cuál es (citaActualId), para no marcar la cita
+    // equivocada de este DNI si tiene más de una.
     try {
-      await setDoc(doc(dbPsico, PACIENTES_COLLECTION, dni), { estado: "atendida" }, { merge: true });
+      if (citaActualId) {
+        await setDoc(
+          doc(dbPsico, PACIENTES_COLLECTION, dni, CITAS_SUBCOLLECTION, citaActualId),
+          { estado: "atendida" },
+          { merge: true }
+        );
+      }
       registrarHistorialCita(dni, {
         estado: "atendida",
         fecha: citaActual && citaActual.fecha ? citaActual.fecha : null,

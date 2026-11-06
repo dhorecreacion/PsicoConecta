@@ -21,7 +21,7 @@
 //   opcionales; sus nombres se completan al validar el archivo desde el
 //   catálogo local (data/cie10.json) — si un código no está ahí, se avisa
 //   (no bloquea el import) y queda solo con el código, sin nombre.
-import { dbPsico, PACIENTES_COLLECTION, HISTORIAL_CITAS_SUBCOLLECTION, CONFIGURACION_COLLECTION, MOTIVOS_INASISTENCIA } from "./fb-psico.js";
+import { dbPsico, PACIENTES_COLLECTION, HISTORIAL_CITAS_SUBCOLLECTION, CONFIGURACION_COLLECTION, MOTIVOS_INASISTENCIA, fetchTodasLasCitas, elegirCitaRepresentativa } from "./fb-psico.js";
 import { fetchFichasPorDnis } from "./fichas-cache.js";
 import { cargarCie10 } from "./cie10.js";
 import {
@@ -160,16 +160,24 @@ const COLUMNAS_REPORTE = [
 const ESTADO_CITA_LABEL = { reservada: "Reservada", atendida: "Atendida", no_asistio: "No Asistió", reprogramada: "Reprogramada" };
 const ASISTIO_CITA_LABEL = { atendida: "Sí", no_asistio: "No" };
 
-// El teléfono vive en pacientes/{dni} (la reserva vigente), no en sesiones
-// ni en historial_citas — por eso se trae aparte. OJO: pacientes/{dni} se
-// sobreescribe en cada reserva nueva, así que solo se tiene el último
-// número conocido de cada persona, no un historial de cambios.
+// El teléfono viene de las citas de cada persona (pacientes/{dni}/citas), no
+// de sesiones ni de historial_citas — por eso se trae aparte. De las varias
+// citas que puede tener un mismo DNI, se usa la más relevante
+// (elegirCitaRepresentativa, misma lógica que pacientes.js/atencion.js), así
+// que solo se tiene un número por persona, no un historial de cambios.
 async function fetchTelefonosPorDni() {
+  const citas = await fetchTodasLasCitas();
+  const porDni = new Map();
+  citas.forEach((c) => {
+    if (!porDni.has(c.dni)) porDni.set(c.dni, []);
+    porDni.get(c.dni).push(c);
+  });
+
   const mapa = new Map();
-  const snap = await getDocs(collection(dbPsico, PACIENTES_COLLECTION));
-  snap.forEach((d) => {
-    const telefono = d.data().telefonoWsp;
-    if (telefono) mapa.set(d.id, telefono);
+  porDni.forEach((lista, dni) => {
+    const representativa = elegirCitaRepresentativa(lista);
+    const telefono = representativa && representativa.data.telefonoWsp;
+    if (telefono) mapa.set(dni, telefono);
   });
   return mapa;
 }

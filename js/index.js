@@ -3,13 +3,14 @@
 // autenticar contra el proyecto de fb-psico.js. El resto de la ficha
 // (nombre, teléfono, área, modalidad) se completa más adelante, cuando esa
 // parte del flujo se conecte.
-import { dbPsico, PACIENTES_COLLECTION, DISPONIBILIDAD_COLLECTION, MODALIDADES, registrarHistorialCita, fetchDisponibilidadRango } from "./fb-psico.js";
+import { dbPsico, PACIENTES_COLLECTION, CITAS_SUBCOLLECTION, DISPONIBILIDAD_COLLECTION, MODALIDADES, registrarHistorialCita, fetchDisponibilidadRango } from "./fb-psico.js";
 import {
   doc,
   getDoc,
-  setDoc,
+  addDoc,
   serverTimestamp,
   collection,
+  collectionGroup,
   getDocs,
   query,
   where
@@ -141,8 +142,10 @@ function bloquesDelDia(fecha) {
 async function fetchHorasOcupadas() {
   // Solo las citas de hoy en adelante: las pasadas no bloquean burbujas, y
   // así el costo de lecturas de la página pública no crece con el histórico.
+  // collectionGroup porque ahora cada persona puede tener varias citas (ver
+  // CITAS_SUBCOLLECTION en fb-psico.js) — ya no es un doc por DNI.
   const hoyISO = formatearFechaISO(new Date());
-  const citasFuturas = query(collection(dbPsico, PACIENTES_COLLECTION), where("fecha", ">=", hoyISO));
+  const citasFuturas = query(collectionGroup(dbPsico, CITAS_SUBCOLLECTION), where("fecha", ">=", hoyISO));
   const snap = await getDocs(citasFuturas);
   const ocupadas = new Set();
   snap.forEach((d) => {
@@ -447,8 +450,12 @@ confirmBtn.addEventListener("click", async () => {
   const datosFamiliar = obtenerDatosFamiliar();
 
   try {
-    await setDoc(
-      doc(dbPsico, PACIENTES_COLLECTION, dni),
+    // Un documento nuevo por cita (no un setDoc sobre un único pacientes/{dni})
+    // para que un mismo DNI pueda tener varias citas a la vez — ej. una para
+    // el colaborador y otra para su familiar el mismo día, que antes se
+    // pisaban entre sí al compartir el mismo documento.
+    await addDoc(
+      collection(dbPsico, PACIENTES_COLLECTION, dni, CITAS_SUBCOLLECTION),
       {
         dni,
         fecha: selectedFecha,
@@ -458,12 +465,9 @@ confirmBtn.addEventListener("click", async () => {
         enlace: selectedModalidad === "virtual" ? selectedEnlace : "",
         telefonoWsp: telefonoWsp,
         ...datosFamiliar,
-        // Una nueva reserva siempre arranca el ciclo de nuevo: si la persona
-        // ya había sido atendida (o no asistió), esta es otra cita.
         estado: "reservada",
         creadoEn: serverTimestamp()
-      },
-      { merge: true }
+      }
     );
 
     try {

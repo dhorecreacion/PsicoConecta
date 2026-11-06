@@ -7,7 +7,7 @@
 //   4. fichas (firebase-config, autenticado): nombre y área, pedidos por
 //      lotes con where("personal.doc", "in", [...]) solo para los DNIs que
 //      realmente aparecen en el directorio.
-import { dbPsico, PACIENTES_COLLECTION, CASOS_COLLECTION, CONFIGURACION_COLLECTION, esCasoActivoMIBSAC } from "./fb-psico.js";
+import { dbPsico, CASOS_COLLECTION, CONFIGURACION_COLLECTION, esCasoActivoMIBSAC, fetchTodasLasCitas, elegirCitaRepresentativa } from "./fb-psico.js";
 import { fetchFichasPorDnis } from "./fichas-cache.js";
 import {
   collection,
@@ -59,10 +59,23 @@ function formatFecha(date) {
 }
 
 // ---------- Carga de datos ----------
+// Un mismo DNI puede tener varias citas a la vez (ver CITAS_SUBCOLLECTION en
+// fb-psico.js) — este directorio solo muestra UNA por persona ("próxima
+// cita"), así que se agrupan y se elige la más relevante con
+// elegirCitaRepresentativa (misma lógica que atencion.js).
 async function fetchReservas() {
-  const snap = await getDocs(collection(dbPsico, PACIENTES_COLLECTION));
+  const citas = await fetchTodasLasCitas();
+  const porDni = new Map();
+  citas.forEach((c) => {
+    if (!porDni.has(c.dni)) porDni.set(c.dni, []);
+    porDni.get(c.dni).push(c);
+  });
+
   const reservas = new Map();
-  snap.forEach((d) => reservas.set(d.id, d.data()));
+  porDni.forEach((lista, dni) => {
+    const representativa = elegirCitaRepresentativa(lista);
+    if (representativa) reservas.set(dni, representativa.data);
+  });
   return reservas;
 }
 
