@@ -458,5 +458,6 @@
   "Z65.9": "Problemas relacionados con circunstancias psicosociales no especificadas",
   "Z72" :  "Problemas relacionados con el estilo de vida (como hábitos de dieta inadecuados o falta de ejercicio físico)",
   "R45.2" : "Infelicidad",
-  "Z71.9" : "Asesoramiento, no especificado"
+  "Z71.9" : "Asesoramiento, no especificado",
+  "Z71.1" : "Persona que teme estar enferma, a quien no se hace diagnóstico"
 }
